@@ -1,0 +1,7 @@
+[submodule "deps/acados"]
+	path = deps/acados
+	url = https://github.com/acados/acados.git
+
+[submodule "deps/mujoco_quadrotor"]
+	path = deps/mujoco_quadrotor
+	url = https://github.com/acp-lab/quadrotor_simulator_mujoco.git

@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dq_nmpc"
+version = "0.1.0"
+description = "Dual Quaternion NMPC for Quadrotor"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "casadi>=3.6",
+    "scipy>=1.10",
+    "osqp>=0.6",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "ruff",
+]
+
+[project.scripts]
+dq-nmpc = "dq_nmpc.ros.nmpc_node:main"
+dq-planner = "dq_nmpc.ros.planner_node:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dq_nmpc"]
+
+[tool.hatch.build.force-include]
+"config" = "share/dq_nmpc/config"
+"launch" = "share/dq_nmpc/launch"
+"package.xml" = "share/dq_nmpc/package.xml"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501", "N802", "N803", "N806", "N817"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

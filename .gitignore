@@ -1,0 +1,31 @@
+# acados generated C code
+c_generated_code/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+
+# acados build artifacts
+deps/acados/build/
+deps/mujoco_quadrotor/build/
+deps/mujoco_quadrotor/install/
+deps/mujoco_quadrotor/log/
+
+# ROS2
+log/
+install/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
