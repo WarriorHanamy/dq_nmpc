@@ -9,9 +9,8 @@ Subpackages:
 
 from dq_nmpc.math.dual_quaternion import DualQuaternion
 from dq_nmpc.math.quaternion import Quaternion
-from dq_nmpc.utils import yaml_to_dict
 
-__all__ = ["DualQuaternion", "Quaternion", "yaml_to_dict"]
+__all__ = ["DualQuaternion", "Quaternion"]
 
 # Lazy imports for optional acados-dependent modules.
 # Import them explicitly when needed:

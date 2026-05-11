@@ -36,19 +36,6 @@
     iyy: 0.00159695
     izz: 0.00159687
 
-    # nmpc_control_params
-    nmpc:
-      Q:   [210., 210., 210., 250., 1., 1., 1., 5., 5., 5., 5., 1., 1., 1.]
-      Q_e: [210., 210., 210., 250., 1., 1., 1., 5., 5., 5., 5., 1., 1., 1.]
-      R:   [0.7, 0.1, 0.1, 0.1]
-      nx: 14
-      nu: 4
-      lbu: [0.2, -0.45, -0.45, -0.45]
-      ubu: [42.0, 0.45, 0.45, 0.45]
-      horizon_steps: 21
-      horizon_time: 1.5
-      ts: 0.03
-
     # px4 interface
     lin_cof_a: 0.00005
     lin_int_b: -0.35
@@ -81,45 +68,7 @@
         y: 0.004 # 0.001
         z: 0.03 # 0.008
     
-    # tracker_params
-    qp_tracker:
-      v_max: 2.0
-      a_max: 4.0
-      degree_optimize: 4
-      x_max: 2.0
-      x_min: -2.0
-      y_max: 1.5
-      y_min: -1.5
-      z_max: 2.0
-      z_min: 0.2
-    
-    line_tracker_distance:
-      default_v_des: 0.3
-      default_a_des: 0.2
-      epsilon: 0.1
-    
-    line_tracker_min_jerk:
-      default_v_des: 0.3
-      default_a_des: 0.2
-      default_yaw_v_des: 0.5
-      default_yaw_a_des: 0.2
-    
-    trajectory_tracker:
-      max_vel_des: 0.3
-      max_acc_des: 0.2
-    
-    # trackers
-    trackers:
-      - std_trackers/LineTrackerMinJerkAction
-      - std_trackers/LineTrackerDistanceAction
-      - std_trackers/LissajousTrackerAction
-      - std_trackers/VelocityTrackerAction
-      - std_trackers/NullTracker
-      - std_trackers/CircleTrackerAction
-      - std_trackers/TrajectoryTracker
-      - std_trackers/SmoothVelTrackerAction
-      - std_trackers/QPTrackerAction
-    
+
     # mav_manager_params
     need_imu: false
     need_output_data: true

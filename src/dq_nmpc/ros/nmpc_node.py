@@ -29,6 +29,7 @@ from dq_nmpc.ros.adapters import (
     position_cmd_to_trajectory,
     wrench_from_control,
 )
+from dq_nmpc.schemas.config import NMPCConfig
 from dq_nmpc.schemas.control import ControlCommand
 
 # Function to create a dualquaternion, get quaernion and translatation and returns a dualquaternion
@@ -67,84 +68,19 @@ class DQnmpcNode(Node):
         self.declare_parameter("izz", 0.00159687)
         self.declare_parameter("mav_name", "quadrotor")
 
-        # System gains
-        self.declare_parameter("nmpc.Q", [0.0] * 14)
-        self.declare_parameter("nmpc.Q_e", [0.0] * 14)
-        self.declare_parameter("nmpc.R", [0.0] * 4)
-        self.declare_parameter("nmpc.horizon_steps", 0)
-        self.declare_parameter("nmpc.horizon_time", 0.0)
-        self.declare_parameter("nmpc.ts", 0.0)
-        self.declare_parameter("nmpc.ubu", [0.0] * 4)
-        self.declare_parameter("nmpc.lbu", [0.0] * 4)
-        self.declare_parameter("nmpc.nx", 0)
-        self.declare_parameter("nmpc.nu", 0)
-
+        self.declare_parameter("nmpc_config_path", "")
         self.declare_parameter("flag_build", True)
+
         self.flag_build = self.get_parameter("flag_build").value
-
-        # Access parameters
-        self.mass = self.get_parameter("mass").value
-        self.gravity = self.get_parameter("gravity").value
-        self.ixx = self.get_parameter("ixx").value
-        self.iyy = self.get_parameter("iyy").value
-        self.izz = self.get_parameter("izz").value
-
-        nmpc_params = self.get_parameters_by_prefix("nmpc")
-        self.Q = nmpc_params["Q"].value
-        self.Q_e = nmpc_params["Q_e"].value
-        self.R = nmpc_params["R"].value
-        self.ubu = nmpc_params["ubu"].value
-        self.lbu = nmpc_params["lbu"].value
-        self.horizon_time = nmpc_params["horizon_time"].value
-        self.horizon_steps = nmpc_params["horizon_steps"].value
-        self.ts = nmpc_params["ts"].value
-        self.nx = nmpc_params["nx"].value
-        self.nu = nmpc_params["nu"].value
-
         self.mav_name = self.get_parameter("mav_name").get_parameter_value().string_value
 
-        # Check values
-        self.get_logger().info(f"Mass: {self.mass}")
-        self.get_logger().info(f"Grravity: {self.gravity}")
-        self.get_logger().info(f"Ixx: {self.ixx}")
-        self.get_logger().info(f"Iyy: {self.iyy}")
-        self.get_logger().info(f"Izz: {self.izz}")
-
-        self.get_logger().info(f"Q matrix: {self.Q}")
-        self.get_logger().info(f"Qe matrix: {self.Q_e}")
-        self.get_logger().info(f"R matrix: {self.R}")
-
-        self.get_logger().info(f"Ubu matrix: {self.ubu}")
-        self.get_logger().info(f"Lbu matrix: {self.lbu}")
-
-        self.get_logger().info(f"Horizon Steps: {self.horizon_steps}")
-        self.get_logger().info(f"Horizon Time: {self.horizon_time}")
-        self.get_logger().info(f"Ts Time: {self.ts}")
-        self.get_logger().info(f"Name: {self.mav_name}")
-        self.get_logger().info(f"Nx: {self.nx}")
-        self.get_logger().info(f"Nu: {self.nu}")
-
-        # === Optional: Consolidate all parameters into a dict ===
-        params = {
-            "mass": self.mass,
-            "gravity": self.gravity,
-            "ixx": self.ixx,
-            "iyy": self.iyy,
-            "izz": self.izz,
-            "mav_name": self.mav_name,
-            "nmpc": {
-                "Q": self.Q,
-                "Q_e": self.Q_e,
-                "R": self.R,
-                "ubu": self.ubu,
-                "lbu": self.lbu,
-                "horizon_steps": self.horizon_steps,
-                "ts": self.ts,
-                "horizon_time": self.horizon_time,
-                "nx": self.nx,
-                "nu": self.nu,
-            },
-        }
+        # Load NMPC solver config from standalone YAML
+        nmpc_config_path = self.get_parameter("nmpc_config_path").get_parameter_value().string_value
+        if not nmpc_config_path:
+            self.get_logger().error("nmpc_config_path not set, cannot load NMPC config")
+            raise RuntimeError("nmpc_config_path parameter is required")
+        nmpc_config = NMPCConfig.from_yaml(nmpc_config_path)
+        params = nmpc_config.to_params_dict()
 
         # Values of the system
         self.g = params["gravity"]

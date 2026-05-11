@@ -27,6 +27,7 @@ dev = [
 [project.scripts]
 dq-nmpc = "dq_nmpc.ros.nmpc_node:main"
 dq-planner = "dq_nmpc.ros.planner_node:main"
+dq-generate = "dq_nmpc.nmpc.controller:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dq_nmpc"]

@@ -1,0 +1,24 @@
+#####################################
+# NMPC Solver Configuration
+# Standalone -- no ROS dependency
+
+# dynamics
+mav_name: "quadrotor"
+gravity: 9.80665
+mass: 1.0
+ixx: 0.00305587
+iyy: 0.00159695
+izz: 0.00159687
+
+# nmpc solver parameters
+nmpc:
+  Q:   [210., 210., 210., 250., 1., 1., 1., 5., 5., 5., 5., 1., 1., 1.]
+  Q_e: [210., 210., 210., 250., 1., 1., 1., 5., 5., 5., 5., 1., 1., 1.]
+  R:   [0.7, 0.1, 0.1, 0.1]
+  nx: 14
+  nu: 4
+  lbu: [0.2, -0.45, -0.45, -0.45]
+  ubu: [42.0, 0.45, 0.45, 0.45]
+  horizon_steps: 21
+  horizon_time: 1.5
+  ts: 0.03

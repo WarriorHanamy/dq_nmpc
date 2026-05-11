@@ -2,7 +2,6 @@ import os
 import sys
 import numpy as np
 from acados_template import AcadosOcp, AcadosOcpSolver
-from dq_nmpc import utils
 from dq_nmpc.nmpc.dynamics import export_model
 from casadi import Function, MX, vertcat, sin, cos, fabs, DM
 
@@ -188,8 +187,19 @@ def solver(params, flag=True):
     return acados_solver, ocp
 
 
-if __name__ == "__main__":
+def main():
+    """CLI entrypoint for NMPC code generation.
+
+    Usage: dq-generate <path_to_nmpc.yaml>
+    """
+    from dq_nmpc.schemas.config import NMPCConfig
+
     path_to_yaml = os.path.abspath(sys.argv[1])
-    params = utils.yaml_to_dict(path_to_yaml)
+    config = NMPCConfig.from_yaml(path_to_yaml)
+    params = config.to_params_dict()
     print(params)
     ocp_solver, ocp = solver(params)
+
+
+if __name__ == "__main__":
+    main()

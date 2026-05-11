@@ -38,11 +38,11 @@ echo "[INFO] Platform type: $PLATFORM_TYPE"
 # --------------------------------------------------
 # 3. Run NMPC code generation (generates C code)
 # --------------------------------------------------
-CONTROL_YAML="$SCRIPT_DIR/config/$PLATFORM_TYPE/default/dq_control.yaml"
+NMPC_YAML="$SCRIPT_DIR/config/$PLATFORM_TYPE/default/nmpc.yaml"
 GENERATED_DIR="$SCRIPT_DIR/c_generated_code"
 
-echo "[INFO] Running NMPC code generation with config: $CONTROL_YAML"
-python3 "$SCRIPT_DIR/src/dq_nmpc/nmpc/controller.py" "$CONTROL_YAML"
+echo "[INFO] Running NMPC code generation with config: $NMPC_YAML"
+uv run dq-generate "$NMPC_YAML"
 
 echo "[INFO] Code generation complete. Output in: $GENERATED_DIR"
 
