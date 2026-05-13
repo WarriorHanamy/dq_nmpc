@@ -4,4 +4,7 @@
 
 [submodule "deps/mujoco_quadrotor"]
 	path = deps/mujoco_quadrotor
-	url = https://github.com/acp-lab/quadrotor_simulator_mujoco.git
+	url = https://github.com/WarriorHanamy/quadrotor_simulator_mujoco.git
+[submodule "deps/minco-python"]
+	path = deps/minco-python
+	url = https://github.com/WarriorHanamy/minco-python.git

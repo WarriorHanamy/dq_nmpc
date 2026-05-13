@@ -1,130 +1,173 @@
 # Dual-Quaternion Model Predictive Control for Quadrotor
 
-This repository provides an implementation of a Model Predictive Control (MPC) strategy based on Dual Quaternions (DQ) for quadrotor systems.
+Model Predictive Control based on Dual Quaternions (DQ) for quadrotor UAVs.
+Uses acados for fast online NMPC solving, CasADi for symbolic math,
+minco-python for feasible trajectory generation, and MuJoCo (via
+quadrotor_simulator_mujoco) for physics simulation.
 
-### Simulation View
-![Dual Quaternion MPC Animation](images/dq_code.gif)
+Communication between NMPC and the simulator is via POSIX shared memory
+(`/dev/shm/quadrotor_sim/{state,ctrl}`) — no ROS required for the core runtime.
+An optional ROS 2 adapter runs in Docker for visualization (`rviz2`) and
+external tooling.
 
-### On-board Camera View
-![Dual Quaternion MPC Animation](images/dq_code_camera.gif)
-
-The controller leverages the Acados optimization framework for fast and efficient solving of optimal control problems, and the MuJoCo physics engine to simulate realistic quadrotor dynamics in a 3D environment. Dual quaternions are used to represent pose in SE(3) compactly and without singularities, making the approach well-suited for aerial robotics applications.
+![Simulation View](images/dq_code.gif)
+![On-board Camera View](images/dq_code_camera.gif)
 
 ## Dependencies
 
-### Python Packages
+- Python >= 3.12
+- [uv](https://docs.astral.sh/uv/) for environment management
+- [acados](https://github.com/acados/acados.git) (git submodule)
+- [xmake](https://xmake.io/) — to build the simulator C++ binaries
+- CMake, gcc/g++
 
-Install required Python dependencies:
-
-```bash
-pip install --no-cache-dir pyyaml pynput casadi osqp
-````
-
-### Acados Installation
-
-To install Acados and its dependencies, execute the following:
+### Submodules
 
 ```bash
-git clone https://github.com/acados/acados.git
-cd acados
-git checkout 37e17d31890ab54e5a855f1fe787fbf2f5d43bdb
-git submodule update --init --recursive
-mkdir -p build
-cd build
-cmake -DACADOS_WITH_QPOASES=ON -DACADOS_INSTALL_DIR="${HOME}/acados" ..
-make install -j$(nproc)
-cd ${HOME}/acados 
-make shared_library 
-make examples_c
-pip install -e ${HOME}/acados/interfaces/acados_template
+git submodule update --init
 ```
 
-#### Build Tera Renderer (for Acados templating)
+| Submodule               | Path                  | Purpose                              |
+| ----------------------- | --------------------- | ------------------------------------ |
+| acados                  | `deps/acados`           | NMPC solver                          |
+| minco-python            | `deps/minco-python`     | MINCO trajectory optimization + flatness |
+| quadrotor_simulator_mujoco | `deps/mujoco_quadrotor` | MuJoCo physics engine + SHM IPC     |
+
+## Quick Start
 
 ```bash
-git clone https://github.com/acados/tera_renderer
-cd tera_renderer
-curl https://sh.rustup.rs -sSf | sh -s -- -y
-/bin/bash -c "source ${HOME}/.cargo/env && cargo build --verbose --release"
-cp ${HOME}/tera_renderer/target/release/t_renderer ${HOME}/acados/bin/t_renderer
+# 1. Install Python deps (includes building minco-python C++ extension)
+uv sync --extra dev
+
+# 2. Build acados (one-time)
+cmake -B deps/acados/build -S deps/acados \
+  -DACADOS_WITH_OSQP=ON -DACADOS_PYTHON=ON
+cmake --build deps/acados/build
+
+# 3. Run NMPC code generation (requires acados env vars)
+export ACADOS_SOURCE_DIR="$(realpath deps/acados)"
+export LD_LIBRARY_PATH="$ACADOS_SOURCE_DIR/lib:$LD_LIBRARY_PATH"
+export PYTHONPATH="$ACADOS_SOURCE_DIR/interfaces/acados_template:$PYTHONPATH"
+uv run dq-codegen config/mujoco/default/nmpc.yaml
+
+# 4. Generate a trajectory CSV
+uv run dq-trajectory --shape circle --total-time 5.0 --ts 0.03
+
+# 5. Run: sim core + NMPC (orchestrator auto-builds sim binaries)
+uv run dq-run config/mujoco/default/nmpc.yaml trajectory.csv
 ```
 
-#### Add Environment Variables and Aliases
+## Architecture
 
-Append the following to your `~/.bashrc`:
+```
+                             HOST (Linux)
+  ┌────────────────────────────────────────────────────────────┐
+  │                                                            │
+  │  ┌──────────────────┐         ┌─────────────────────────┐  │
+  │  │ quadrotor_sim_core │         │  dq_nmpc (Python)       │  │
+  │  │ (C++, MuJoCo)     │         │                          │  │
+  │  │                   │  SHM    │  orchestrator.py         │  │
+  │  │  mj_step() ──writes──►     │    ├─ sim_core process    │  │
+  │  │  apply_ctrl() ◄──reads──    │    └─ nmpc/runner.py     │  │
+  │  └──────────────────┘         └─────────────────────────┘  │
+  │             │                            │                  │
+  │             └──────────┬─────────────────┘                  │
+  │              /dev/shm/quadrotor_sim/                        │
+  │              state (192 B) / ctrl (64 B)                    │
+  └────────────────────────────────────────────────────────────┘
+
+  Optional: ROS 2 adapter (Docker)
+  ┌────────────────────────────────────────────────────────────┐
+  │  docker build -f docker/dq_nmpc_ros2.Dockerfile ...       │
+  │  Bridges SHM ↔ /odom + /cmd topics for rviz2, etc.         │
+  └────────────────────────────────────────────────────────────┘
+```
+
+## Entry Points
+
+| Command           | Description                                          |
+| ----------------- | ---------------------------------------------------- |
+| `uv run dq-trajectory` | Generate feasible trajectory CSV via minco-python     |
+| `uv run dq-codegen`    | Generate acados C code from an NMPC YAML config       |
+| `uv run dq-run`        | Orchestrator: build & launch sim + NMPC runner        |
+
+### `dq-trajectory`
+
+```
+uv run dq-trajectory --shape hover|line|circle|fig8 \
+  --output trajectory.csv --ts 0.03 --total-time 5.0
+```
+
+### `dq-codegen`
+
+```
+uv run dq-codegen config/mujoco/default/nmpc.yaml
+```
+
+### `dq-run`
+
+```
+uv run dq-run config/mujoco/default/nmpc.yaml trajectory.csv [--max-iter 1000]
+```
+
+## Shared Memory Interface
+
+| Segment | File                         | Size    | Written By     | Read By         |
+| ------- | ---------------------------- | ------- | -------------- | --------------- |
+| state   | `/dev/shm/quadrotor_sim/state` | 192 B   | sim_core       | nmpc/runner     |
+| ctrl    | `/dev/shm/quadrotor_sim/ctrl`  | 64 B    | nmpc/runner    | sim_core        |
+
+Synchronization: seqlock (monotonic sequence counter + memory barriers).
+The schema contract lives in `deps/mujoco_quadrotor/python/quadrotor_sim/shm.py`.
+
+## ROS 2 Adapter (optional)
+
+For rviz2 visualization or integration with other ROS nodes:
 
 ```bash
-echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
-echo "source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash" >> ~/.bashrc
-echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${HOME}/acados/lib' >> ~/.bashrc
-echo 'export ACADOS_SOURCE_DIR=${HOME}/acados' >> ~/.bashrc
-echo 'source ${HOME}/.cargo/env' >> ~/.bashrc
-echo 'export WS=/home/ros2_ws' >> ~/.bashrc
+docker build -f docker/dq_nmpc_ros2.Dockerfile -t dq_nmpc_ros2 .
+docker run --rm --net=host \
+  -v /dev/shm/quadrotor_sim:/dev/shm/quadrotor_sim:rw \
+  dq_nmpc_ros2
 ```
 
-Apply the changes:
+Publishes `/odom` (from SHM state), subscribes to `/cmd` (writes SHM control).
+
+## Development
 
 ```bash
-source ~/.bashrc
+uv run ruff check src/ tests/       # lint
+uv run ruff check --fix src/ tests/ # auto-fix
+uv run pytest -v                    # run tests
 ```
 
-## Custom Messages
-
-This project depends on custom ROS 2 message types. Clone the message package into your workspace:
-
-```bash
-cd ~/ros2_ws/src  
-git https://github.com/acp-lab/quadrotor_msgs
-```
-
-Build the workspace:
-
-```bash
-cd ~/ros2_ws
-colcon build --symlink-install  
-source install/setup.bash
-```
-
-## Installation of the Dual-Quaternion MPC Controller
-
-Clone this repository into your ROS 2 workspace:
-
-```bash
-cd ~/ros2_ws/src  
-git clone https://github.com/acp-lab/dq_nmpc.git
-```
-
-Build the workspace:
-
-```bash
-cd ~/ros2_ws
-colcon build --symlink-install  
-source install/setup.bash
-```
-
-## Simulation Environment
-
-The simulation environment used for testing and validating the controller is available in the following repository:
-
-Quadrotor Simulator in MuJoCo: [https://github.com/acp-lab/quadrotor\_simulator\_mujoco.git](https://github.com/acp-lab/quadrotor_simulator_mujoco.git)
-
-**Important:** Ensure the simulator is installed and running before launching the controller. The MPC relies on published simulation data, such as odometry.
-
-## Usage
-
-To launch the simulation, planner, and controller together, run:
-
-```bash
-ros2 launch dq_nmpc controller_dq.launch.py
-```
-
-## Available ROS 2 Topics
-
-| Topic Name      | Message Type              | Description                                  |
-| --------------- | ------------------------- | -------------------------------------------- |
-| /quadrotor/cmd  | geometry\_msgs/msg/Wrench | Control input computed by the DQ-MPC         |
-| /quadrotor/position_cmd  | quadrotor\_msgs/msg/PositionCommand | Desired States of the System         |
-| /quadrotor/odom | nav\_msgs/msg/Odometry    | Full quadrotor state estimate from simulator |
+## Codebase Codemap
 
 ```
+src/dq_nmpc/
+├── math/                    # Pure math — Quaternion, DualQuaternion (numpy/casadi)
+├── schemas/                 # Pydantic I/O: state, control, trajectory, config
+├── nmpc/                    # NMPC solver (acados)
+│   ├── dynamics.py           #   Quadrotor ODE, dual-quaternion kinematics
+│   ├── controller.py         #   AcadosOcpSolver builder + codegen entrypoint
+│   ├── runner.py             #   SHM-based NMPC runtime loop
+│   └── functions.py          #   CasADi helper factories
+├── trajectory/              # minco-python integration
+│   ├── generator.py          #   MINCO optimize → sample flatness → CSV
+│   └── loader.py             #   CSV → ReferenceTrajectory
+├── orchestrator.py          # Launch sim_core + NMPC, handle lifecycle
+├── ros/                     # ROS 2 adapter layer (optional, Docker-based)
+└── config/mujoco/default/   # NMPC YAML parameter files
+```
+
+### Dependency Layers
+
+```
+math  ──(numpy, casadi only, no acados)──
+schemas ──(pydantic)──
+nmpc  ──(acados, math, schemas)──
+trajectory ──(minco-python, schemas)──
+├── runner ──(nmpc, trajectory, quadrotor_sim.shm)──
+└── orchestrator ──(runner, subprocess)──
+ros  ──(rclpy, optional)──
 ```

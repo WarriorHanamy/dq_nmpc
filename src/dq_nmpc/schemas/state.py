@@ -7,7 +7,14 @@ from pydantic import BaseModel
 
 
 class DualQuaternionState(BaseModel):
-    """14D state: dual quaternion (8) + body-frame twist (6)."""
+    """14D state: dual quaternion (8) + body-frame twist (6).
+
+    Layout: [qw,qx,qy,qz, dw,dx,dy,dz, wx,wy,wz, vx,vy,vz]
+    - qw,qx,qy,qz: primary quaternion (world ENU orientation)
+    - dw,dx,dy,dz: dual part (encodes world ENU position)
+    - wx,wy,wz:     body FLU angular velocity [rad/s]
+    - vx,vy,vz:     body FLU linear velocity [m/s]
+    """
 
     qw: float = 1.0
     qx: float = 0.0
@@ -74,9 +81,13 @@ class DualQuaternionState(BaseModel):
 
 
 class ClassicalState(BaseModel):
-    """13D classical state for ROS compatibility.
+    """13D classical state for ROS / SHM compatibility.
 
     Layout: [x, y, z, vx, vy, vz, qw, qx, qy, qz, wx, wy, wz]
+    - x, y, z:        world ENU position [m]
+    - vx, vy, vz:      body FLU linear velocity [m/s]
+    - qw, qx, qy, qz:  world ENU orientation quaternion
+    - wx, wy, wz:      body FLU angular velocity [rad/s]
     """
 
     x: float = 0.0

@@ -1,7 +1,10 @@
 # AGENTS.md — dq_nmpc
 
-Dual-Quaternion Model Predictive Control for quadrotor UAVs.  
-Uses acados for fast online NMPC solving, CasADi for symbolic math, Pydantic for I/O schemas, and ROS 2 as the runtime middleware.
+Dual-Quaternion Model Predictive Control for quadrotor UAVs.
+Uses acados for fast online NMPC solving, CasADi for symbolic math,
+Pydantic for I/O schemas, minco-python for trajectory generation, and
+POSIX shared memory for communication with the MuJoCo simulator.
+ROS 2 is an optional adapter layer (Docker-based).
 
 ---
 
@@ -12,7 +15,7 @@ src/dq_nmpc/
 ├── type.py                  # Scalar, Vector type aliases (numpy | casadi)
 ├── utils.py                 # YAML loading, quaternion utility functions
 │
-├── math/                    # Pure math — no acados, no ROS
+├── math/                    # Pure math — no acados, no ROS, no SHM
 │   ├── quaternion.py        # Quaternion class (numpy, cs.MX, cs.SX backends)
 │   └── dual_quaternion.py   # DualQuaternion class (SE(3) algebra)
 │
@@ -28,30 +31,40 @@ src/dq_nmpc/
 │   │                         # flatness-based trajectory generation
 │   ├── ocp_setup.py         # OCP definition: cost, constraints, solver options
 │   ├── controller.py        # solver(): build & return AcadosOcpSolver
+│   ├── runner.py            # SHM-based NMPC runtime loop
 │   └── functions.py         # casadi Function factories (dualquat_from_pose, etc.)
 │
-├── ros/                     # ROS 2 compatibility layer (optional, needs rclpy)
+├── trajectory/              # minco-python integration
+│   ├── generator.py         # GCOPTER optimize → sample flatness → write CSV
+│   └── loader.py            # read CSV → ReferenceTrajectory
+│
+├── orchestrator.py          # Launch sim_core subprocess + run NMPC, handle cleanup
+│
+├── ros/                     # ROS 2 adapter layer (optional, Docker-based)
 │   ├── nmpc_node.py         # DQnmpcNode: subscriber (odom, position_cmd) → solver → publisher (cmd)
 │   ├── planner_node.py      # PlannerNode: generates reference trajectories via flatness
 │   └── adapters.py          # ROS msg ↔ Pydantic schema conversion
 │
-├── config/mujoco/default/   # YAML parameter files
-├── launch/                  # ROS 2 launch files
+├── config/mujoco/default/   # YAML parameter files (nmpc.yaml)
 └── tests/                   # pytest tests (schemas, math imports)
 ```
 
 ### Dependency layers
 
 ```
-math  ──(no deps beyond numpy, casadi)──
+math  ──(numpy, casadi only)──
 schemas ──(pydantic)──
 nmpc  ──(acados, math, schemas)──
-ros   ──(rclpy, nmpc, schemas)──
+trajectory ──(minco-python, schemas)──
+├── runner ──(nmpc, trajectory, quadrotor_sim.shm)──
+└── orchestrator ──(runner, subprocess)──
+ros  ──(rclpy, optional, Docker-based)──
 ```
 
-- `math` and `schemas` are importable without acados or ROS.
+- `math` and `schemas` are importable without acados or minco.
 - `nmpc` works only when acados is built and on `PYTHONPATH`.
-- `ros` is optional — install with the `[ros]` extra (see below).
+- `trajectory/` needs minco-python built (CMake + scikit-build-core).
+- `ros` is optional — the Docker adapter (`docker/dq_nmpc_ros2.Dockerfile`) provides ROS 2 bridging.
 
 ---
 
@@ -60,70 +73,70 @@ ros   ──(rclpy, nmpc, schemas)──
 ### Prerequisites
 
 ```bash
-uv sync                           # install python deps (numpy, casadi, pydantic, …)
+uv sync                           # install python deps + build minco-python C++ extension
 uv sync --extra dev               # also install pytest, ruff
 ```
 
-ROS 2 dependencies (`rclpy`, `nav_msgs`, `geometry_msgs`, etc.) are **not** on PyPI and must be available via your ROS 2 environment:
-
-```bash
-source /opt/ros/humble/setup.bash
-```
+ROS 2 dependencies (`rclpy`, `nav_msgs`, `geometry_msgs`, etc.) are only needed if using the Docker-based ROS adapter.
 
 ### acados
 
-Clone acados as a submodule (or use the existing `deps/acados/`):
-
 ```bash
 git submodule update --init deps/acados
+cmake -B deps/acados/build -S deps/acados \
+  -DACADOS_WITH_OSQP=ON -DACADOS_PYTHON=ON
+cmake --build deps/acados/build
 ```
 
-Build it once:
+acados env vars required before codegen or runtime:
 
 ```bash
-./build_dq_nmpc.sh mujoco
+export ACADOS_SOURCE_DIR="$(realpath deps/acados)"
+export LD_LIBRARY_PATH="$ACADOS_SOURCE_DIR/lib:$LD_LIBRARY_PATH"
+export PYTHONPATH="$ACADOS_SOURCE_DIR/interfaces/acados_template:$PYTHONPATH"
 ```
 
-This script:
-1. Builds acados from `deps/acados/` (cmake + make, if not already built)
-2. Exports `ACADOS_SOURCE_DIR`, `LD_LIBRARY_PATH`, `PYTHONPATH`
-3. Runs `src/dq_nmpc/nmpc/controller.py <config_yaml>` to generate C code into `c_generated_code/`
-4. (Optional) copies generated code into `$WS` for colcon dq_cpp build
-
-Generated C code lives in `c_generated_code/` (gitignored).
-
-### Mujoco simulator
-
-The simulator lives as a submodule at `deps/mujoco_quadrotor/`. Build it independently via colcon:
+Run codegen once (produces `c_generated_code/`):
 
 ```bash
-git submodule update --init deps/mujoco_quadrotor
-cd deps/mujoco_quadrotor && colcon build --symlink-install
+uv run dq-codegen config/mujoco/default/nmpc.yaml
+```
+
+### Simulator
+
+The simulator lives as a submodule at `deps/mujoco_quadrotor/`. Its C++ binaries are built via xmake. The orchestrator (`dq-run`) handles this automatically, or you can build manually:
+
+```bash
+cd deps/mujoco_quadrotor && uv run sim build
 ```
 
 ---
 
 ## Run
 
-### ROS 2 launch (mujoco simulation + NMPC + planner)
+### Main runtime (no ROS)
 
 ```bash
-# In a ROS 2 workspace with dq_nmpc and quadrotor_simulator_mujoco built
-ros2 launch dq_nmpc controller_dq.launch.py
+# 1. Generate trajectory CSV
+uv run dq-trajectory --shape circle --total-time 5.0 --ts 0.03
+
+# 2. acados code generation (first run)
+uv run dq-codegen config/mujoco/default/nmpc.yaml
+
+# 3. Run sim core + NMPC
+uv run dq-run config/mujoco/default/nmpc.yaml trajectory.csv
 ```
 
-### Direct entrypoints (via `uv run` or installed wheel)
+### ROS 2 adapter (optional, Docker)
 
 ```bash
-uv run dq-nmpc      # → dq_nmpc.ros.nmpc_node:main   (not useful without ROS)
-uv run dq-planner   # → dq_nmpc.ros.planner_node:main
+docker build -f docker/dq_nmpc_ros2.Dockerfile -t dq_nmpc_ros2 .
+docker run --rm --net=host \
+  -v /dev/shm/quadrotor_sim:/dev/shm/quadrotor_sim:rw \
+  dq_nmpc_ros2
 ```
 
-### Code generation only (no ROS)
-
-```bash
-python3 src/dq_nmpc/nmpc/controller.py config/mujoco/default/dq_control.yaml
-```
+Publishes `/odom` (from SHM state), subscribes to `/cmd` (writes SHM control).
 
 ---
 
@@ -137,6 +150,24 @@ uv run pytest -v                    # run tests (11 tests, no acados needed)
 
 ---
 
+## SHM Interface
+
+| Segment | File                         | Size  | Written By  | Read By      |
+| ------- | ---------------------------- | ----- | ----------- | ------------ |
+| state   | `/dev/shm/quadrotor_sim/state` | 192 B | sim_core    | nmpc/runner  |
+| ctrl    | `/dev/shm/quadrotor_sim/ctrl`  | 64 B  | nmpc/runner | sim_core     |
+
+Synchronization: seqlock. Schema contract: `deps/mujoco_quadrotor/python/quadrotor_sim/shm.py`.
+
+### Coordinate frames
+
+| Frame  | Axes               | Used for                   |
+| ------ | ------------------ | -------------------------- |
+| World  | ENU (X=East, Y=North, Z=Up) | position, orientation, world velocity |
+| Body   | FLU (X=Front, Y=Left, Z=Up)  | linear velocity, angular velocity, thrust, torques |
+
+---
+
 ## Pydantic Schema Conventions
 
 Schemas live in `src/dq_nmpc/schemas/`. Every schema has:
@@ -145,11 +176,6 @@ Schemas live in `src/dq_nmpc/schemas/`. Every schema has:
 - Field-level validation (e.g., `thrust >= 0`, `mass > 0`)
 
 The `NMPCConfig` schema wraps YAML parameter files with validation. Use `NMPCConfig.from_yaml(path)` to load and `config.to_params_dict()` to produce the dict expected by the solver (`solver(params, flag=True)`).
-
-ROS msg conversion lives in `ros/adapters.py`:
-- `odometry_to_classical(msg) -> ClassicalState`
-- `position_cmd_to_trajectory(msg) -> ReferenceTrajectory`
-- `wrench_from_control(cmd, msg_type) -> Wrench`
 
 ---
 
@@ -163,15 +189,5 @@ ROS msg conversion lives in `ros/adapters.py`:
 | SQP_RTI | Sequential Quadratic Programming, Real-Time Iteration |
 | IRK  | Implicit Runge-Kutta (integrator) |
 | HPIPM | High-Performance Interior Point Method (QP solver) |
-
----
-
-## ROS 2 Topics
-
-| Topic                     | Type                               | Dir        |
-|---------------------------|------------------------------------|------------|
-| `/quadrotor/odom`         | `nav_msgs/Odometry`               | in         |
-| `/quadrotor/position_cmd` | `quadrotor_msgs/PositionCommand`  | in         |
-| `/quadrotor/cmd`          | `geometry_msgs/Wrench`            | out        |
-| `/quadrotor/desired_frame`| `nav_msgs/Odometry`               | out (viz)  |
-| `/quadrotor/desired_path` | `visualization_msgs/Marker`       | out (viz)  |
+| SHM  | Shared Memory (POSIX mmap) |
+| SFC  | Safe Flight Corridor (polytope-based obstacle avoidance) |

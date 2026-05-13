@@ -7,7 +7,7 @@ name = "dq_nmpc"
 version = "0.1.0"
 description = "Dual Quaternion NMPC for Quadrotor"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "numpy>=1.24",
     "casadi>=3.6",
@@ -15,7 +15,12 @@ dependencies = [
     "osqp>=0.6",
     "pyyaml>=6.0",
     "pydantic>=2.0",
+    "quadrotor-sim",
 ]
+
+[tool.uv.sources]
+minco-python = { path = "deps/minco-python" }
+quadrotor-sim = { path = "deps/mujoco_quadrotor" }
 
 [project.optional-dependencies]
 dev = [
@@ -25,21 +30,19 @@ dev = [
 ]
 
 [project.scripts]
-dq-nmpc = "dq_nmpc.ros.nmpc_node:main"
-dq-planner = "dq_nmpc.ros.planner_node:main"
-dq-generate = "dq_nmpc.nmpc.controller:main"
+dq-run = "dq_nmpc.orchestrator:main"
+dq-trajectory = "dq_nmpc.trajectory.generator:main"
+dq-codegen = "dq_nmpc.nmpc.controller:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dq_nmpc"]
 
 [tool.hatch.build.force-include]
 "config" = "share/dq_nmpc/config"
-"launch" = "share/dq_nmpc/launch"
-"package.xml" = "share/dq_nmpc/package.xml"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]

@@ -7,7 +7,15 @@ from pydantic import BaseModel, Field
 
 
 class TrajectoryPoint(BaseModel):
-    """Single point on the reference trajectory (13D state + 4D control)."""
+    """Single reference trajectory point (13D state + 4D control).
+
+    - x, y, z:       world ENU position [m]
+    - vx, vy, vz:     world ENU linear velocity [m/s]
+    - qw,qx,qy,qz:    world ENU orientation quaternion
+    - wx, wy, wz:     body FLU angular velocity [rad/s]
+    - thrust:         body FLU thrust [N]
+    - torque_x/y/z:   body FLU torque [Nm] (typically zero for ref)
+    """
 
     x: float = 0.0
     y: float = 0.0
