@@ -1,19 +1,12 @@
-from dq_nmpc.schemas.config import NMPCConfig  # noqa: F401
-from dq_nmpc.schemas.control import ControlCommand  # noqa: F401
-from dq_nmpc.schemas.state import (
-    ClassicalState,  # noqa: F401
-    DualQuaternionState,  # noqa: F401
-)
-from dq_nmpc.schemas.trajectory import (
-    ReferenceTrajectory,  # noqa: F401
-    TrajectoryPoint,  # noqa: F401
-)
+"""Schema re-export shim -- thin wrapper over dq_nmpc.schema."""
 
-__all__ = [
-    "ClassicalState",
-    "ControlCommand",
-    "DualQuaternionState",
-    "NMPCConfig",
-    "ReferenceTrajectory",
-    "TrajectoryPoint",
-]
+from dq_nmpc.schema import (  # noqa: F401
+    ClassicalState,
+    ControlCommand,
+    DualQuaternionState,
+    NMPCConfig,
+    NMPCParams,
+    ReferenceTrajectory,
+    SHMConfig,
+    TrajectoryPoint,
+)

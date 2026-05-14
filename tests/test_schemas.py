@@ -1,10 +1,15 @@
 """Tests for Pydantic schema models."""
 
 import pytest
+from pydantic import ValidationError
 
-from dq_nmpc.schemas.control import ControlCommand
-from dq_nmpc.schemas.state import ClassicalState, DualQuaternionState
-from dq_nmpc.schemas.trajectory import TrajectoryPoint
+from dq_nmpc.schema import (
+    ClassicalState,
+    ControlCommand,
+    DualQuaternionState,
+    SHMConfig,
+    TrajectoryPoint,
+)
 
 
 class TestDualQuaternionState:
@@ -86,8 +91,13 @@ class TestControlCommand:
         assert restored.torque_z == pytest.approx(0.3)
 
     def test_nonnegative_thrust(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ControlCommand(thrust=-1.0)
+
+    def test_frozen_mutation_rejected(self):
+        c = ControlCommand(thrust=5.0)
+        with pytest.raises(Exception):
+            c.thrust = 10.0
 
 
 class TestTrajectoryPoint:
@@ -107,3 +117,16 @@ class TestTrajectoryPoint:
         assert ctrl_arr.shape == (4,)
         assert ctrl_arr[0] == 5.0
         assert ctrl_arr[3] == 0.5
+
+
+class TestSHMConfig:
+    def test_defaults(self):
+        cfg = SHMConfig()
+        assert cfg.state_file == "/dev/shm/quadrotor_sim/state"
+        assert cfg.ctrl_file == "/dev/shm/quadrotor_sim/ctrl"
+        assert cfg.state_size == 192
+        assert cfg.ctrl_size == 64
+
+    def test_default_classmethod(self):
+        cfg = SHMConfig.default()
+        assert cfg.state_file == "/dev/shm/quadrotor_sim/state"

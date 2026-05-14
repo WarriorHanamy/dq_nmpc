@@ -1,76 +1,25 @@
-"""Generate feasible quadrotor trajectories via minco-python and export to CSV.
-
-Each CSV row: t, x, y, z, vx, vy, vz, qw, qx, qy, qz, wx, wy, wz, thrust
-- position/velocity: world ENU frame
-- orientation: world-frame quaternion (w,x,y,z)
-- angular velocity: body FLU frame
-- thrust: body FLU frame [N]
-"""
+"""Generate feasible quadrotor trajectories via minco-python and export to CSV."""
 
 from __future__ import annotations
 
-import argparse
 import csv
 from pathlib import Path
+from typing import Any
 
 import minco
 import numpy as np
 from minco.flatness_cache import CachedFlatness
 
-SHAPES = ("hover", "line", "circle", "fig8")
-
-
-def _make_sfc_box(center, half_extents):
-    """Create a safe-flight corridor as an axis-aligned box.
-
-    Returns (M, 4) half-space matrix where each row [A,B,C,D] encodes
-    Ax + By + Cz + D <= 0.
-    """
-    cx, cy, cz = center
-    hx, hy, hz = half_extents
-    A = np.array(
-        [
-            [1, 0, 0, -(cx - hx)],
-            [-1, 0, 0, (cx + hx)],
-            [0, 1, 0, -(cy - hy)],
-            [0, -1, 0, (cy + hy)],
-            [0, 0, 1, -(cz - hz)],
-            [0, 0, -1, (cz + hz)],
-        ],
-        dtype=np.float64,
-    )
-    return A
-
-
-def _waypoints_for_shape(shape, num_waypoints=10):
-    if shape == "hover":
-        center = np.array([0.0, 0.0, 2.0])
-        return np.tile(center[:, None], (1, num_waypoints - 1))
-    elif shape == "line":
-        start = np.array([0.0, 0.0, 1.5])
-        end = np.array([5.0, 0.0, 1.5])
-        return np.linspace(start, end, num_waypoints - 1).T
-    elif shape == "circle":
-        angles = np.linspace(0, 2 * np.pi, num_waypoints - 1, endpoint=False)
-        radius = 2.0
-        z = 2.0
-        x = radius * np.cos(angles)
-        y = radius * np.sin(angles)
-        return np.vstack([x, y, np.full_like(x, z)])
-    elif shape == "fig8":
-        t = np.linspace(0, 2 * np.pi, num_waypoints - 1)
-        a = 2.0
-        x = a * np.sin(t)
-        y = a * np.sin(t) * np.cos(t)
-        z = np.full_like(x, 2.0)
-        return np.vstack([x, y, z])
-    else:
-        raise ValueError(f"Unknown shape: {shape}")
+from dq_nmpc.utils.waypoints import make_sfc_box, waypoints_for_shape
 
 
 def _sample_trajectory(
-    traj5, flatness: CachedFlatness, ts: float, horizon_steps: int, thrust_hover: float
-):
+    traj5: Any,
+    flatness: CachedFlatness,
+    ts: float,
+    horizon_steps: int,
+    thrust_hover: float,
+) -> list[tuple[float, ...]]:
     total = traj5.total_duration
     num_samples = min(int(total / ts) + 1, horizon_steps * 10)
     rows = []
@@ -124,7 +73,7 @@ def generate_trajectory(
     thrust_hover = mass * gravity
     flatness = CachedFlatness(mass=mass, gravity=gravity)
 
-    inner_points = _waypoints_for_shape(shape, num_waypoints)
+    inner_points = waypoints_for_shape(shape, num_waypoints)
     num_pieces = inner_points.shape[1] + 1
 
     head_pva = np.column_stack([inner_points[:, 0], np.zeros(3), np.zeros(3)])
@@ -142,7 +91,7 @@ def generate_trajectory(
             center = inner_points[:, -1]
         else:
             center = inner_points[:, k]
-        sfc_polys.append(_make_sfc_box(center, half_extents))
+        sfc_polys.append(make_sfc_box(center, half_extents))
 
     opt = minco.gcopter.GCOPTERPolytopeSFC()
     opt.configure_from_file("")
@@ -189,28 +138,3 @@ def generate_trajectory(
 
     print(f"Trajectory saved: {output}  ({len(rows)} points, cost={cost:.4f})")
     return output
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Generate feasible quadrotor trajectory")
-    parser.add_argument("--shape", choices=SHAPES, default="hover", help="Trajectory shape")
-    parser.add_argument("--output", type=str, default="trajectory.csv", help="Output CSV path")
-    parser.add_argument("--ts", type=float, default=0.03, help="Sample time [s]")
-    parser.add_argument(
-        "--total-time", type=float, default=5.0, help="Total trajectory duration [s]"
-    )
-    parser.add_argument("--mass", type=float, default=1.0, help="Mass [kg]")
-    parser.add_argument("--gravity", type=float, default=9.80665, help="Gravity [m/s^2]")
-    args = parser.parse_args()
-    generate_trajectory(
-        shape=args.shape,
-        output=args.output,
-        ts=args.ts,
-        total_time=args.total_time,
-        mass=args.mass,
-        gravity=args.gravity,
-    )
-
-
-if __name__ == "__main__":
-    main()

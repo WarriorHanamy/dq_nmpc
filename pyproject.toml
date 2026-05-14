@@ -30,15 +30,15 @@ dev = [
 ]
 
 [project.scripts]
-dq-run = "dq_nmpc.orchestrator:main"
-dq-trajectory = "dq_nmpc.trajectory.generator:main"
-dq-codegen = "dq_nmpc.nmpc.controller:main"
+dq-run = "dq_nmpc.cli.nmpc:main_run"
+dq-trajectory = "dq_nmpc.cli.trajectory:main"
+dq-codegen = "dq_nmpc.cli.nmpc:main_codegen"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dq_nmpc"]
 
 [tool.hatch.build.force-include]
-"config" = "share/dq_nmpc/config"
+"src/dq_nmpc/config" = "share/dq_nmpc/config"
 
 [tool.ruff]
 line-length = 100

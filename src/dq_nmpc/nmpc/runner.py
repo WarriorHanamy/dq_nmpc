@@ -24,7 +24,7 @@ from dq_nmpc.nmpc.dynamics import (
     velocities_from_twist_casadi,
 )
 from dq_nmpc.nmpc.functions import dualquat_from_pose_casadi
-from dq_nmpc.schemas.config import NMPCConfig
+from dq_nmpc.schema import NMPCConfig
 from dq_nmpc.trajectory.loader import load_trajectory_csv
 
 try:

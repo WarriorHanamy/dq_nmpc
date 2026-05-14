@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from dq_nmpc.schemas.trajectory import ReferenceTrajectory, TrajectoryPoint
+from dq_nmpc.schema import ReferenceTrajectory, TrajectoryPoint
 
 
 def load_trajectory_csv(path: str | Path) -> ReferenceTrajectory:

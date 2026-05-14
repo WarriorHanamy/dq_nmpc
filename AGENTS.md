@@ -8,60 +8,81 @@ ROS 2 is an optional adapter layer (Docker-based).
 
 ---
 
-## Codebase Codemap
-
 ```
 src/dq_nmpc/
-├── type.py                  # Scalar, Vector type aliases (numpy | casadi)
-├── utils.py                 # YAML loading, quaternion utility functions
+├── schema.py                 # SINGLE SOURCE OF TRUTH: all frozen Pydantic models
+│                              #   NMPCConfig, NMPCParams, ControlCommand,
+│                              #   DualQuaternionState, ClassicalState,
+│                              #   TrajectoryPoint, ReferenceTrajectory,
+│                              #   SHMConfig, DockerConfig
 │
-├── math/                    # Pure math — no acados, no ROS, no SHM
-│   ├── quaternion.py        # Quaternion class (numpy, cs.MX, cs.SX backends)
-│   └── dual_quaternion.py   # DualQuaternion class (SE(3) algebra)
+├── schemas/                  # Thin re-export shim (backward compat)
 │
-├── schemas/                 # Pydantic I/O contracts
-│   ├── state.py             # ClassicalState(13D), DualQuaternionState(14D)
-│   ├── control.py           # ControlCommand (thrust + 3 torques)
-│   ├── trajectory.py        # TrajectoryPoint, ReferenceTrajectory
-│   └── config.py            # NMPCConfig: validated YAML→params, with to_params_dict()
+├── type.py                   # Scalar, Vector type aliases (numpy | casadi)
 │
-├── nmpc/                    # NMPC solver — requires acados
-│   ├── dynamics.py          # Quadrotor ODE (export_model, quadrotorModel),
-│   │                         # dual-quaternion Lie-group error/kinematics,
-│   │                         # flatness-based trajectory generation
-│   ├── ocp_setup.py         # OCP definition: cost, constraints, solver options
-│   ├── controller.py        # solver(): build & return AcadosOcpSolver
-│   ├── runner.py            # SHM-based NMPC runtime loop
-│   └── functions.py         # casadi Function factories (dualquat_from_pose, etc.)
+├── core/                     # Stateless primitives — no classes, no mutable state
+│   ├── workspace.py          # project_root(), paths for sim binary and model
+│   ├── docker_util.py        # build_sim(), launch_sim_core(), sim_env()
+│   └── shm_util.py           # wait_for_shm(), cleanup_shm()
 │
-├── trajectory/              # minco-python integration
-│   ├── generator.py         # GCOPTER optimize → sample flatness → write CSV
-│   └── loader.py            # read CSV → ReferenceTrajectory
+├── cli/                      # Zero-logic dispatch — parse args, call one function
+│   ├── nmpc.py               # dq-run (→ workflows.nmpc_loop), dq-codegen (→ workflows.codegen)
+│   └── trajectory.py         # dq-trajectory (→ workflows.generate_trajectory)
 │
-├── orchestrator.py          # Launch sim_core subprocess + run NMPC, handle cleanup
+├── workflows/                # Domain-specific multi-step pipelines
+│   ├── run_nmpc.py           # build sim → launch core → wait SHM → NMPC loop → cleanup
+│   ├── codegen.py            # load YAML → acados solver codegen
+│   └── generate_trajectory.py
 │
-├── ros/                     # ROS 2 adapter layer (optional, Docker-based)
-│   ├── nmpc_node.py         # DQnmpcNode: subscriber (odom, position_cmd) → solver → publisher (cmd)
-│   ├── planner_node.py      # PlannerNode: generates reference trajectories via flatness
-│   └── adapters.py          # ROS msg ↔ Pydantic schema conversion
+├── utils/                    # Standalone helpers
+│   ├── casadi_helpers.py     # quaternion CasADi math (from old utils.py)
+│   └── waypoints.py          # SHAPES, waypoints_for_shape(), make_sfc_box()
 │
-├── config/mujoco/default/   # YAML parameter files (nmpc.yaml)
-└── tests/                   # pytest tests (schemas, math imports)
+├── utils.py                  # Re-export shim (backward compat)
+│
+├── math/                     # Pure math — no acados, no ROS, no SHM
+│   ├── quaternion.py         # Quaternion class (numpy, cs.MX, cs.SX backends)
+│   ├── dual_quaternion.py    # DualQuaternion class (SE(3) algebra)
+│   └── test_smoke.py         # import + construction smoke test
+│
+├── nmpc/                     # NMPC solver — requires acados
+│   ├── dynamics.py           # Quadrotor ODE, DQ kinematics, flatness
+│   ├── ocp_setup.py          # OCP definition: cost, constraints, solver options
+│   ├── controller.py         # solver(): build & return AcadosOcpSolver
+│   ├── runner.py             # SHM-based NMPC runtime loop (run_nmpc)
+│   ├── functions.py          # casadi Function factories (dualquat_from_pose, etc.)
+│   └── test_smoke.py         # import + model shape smoke test
+│
+├── trajectory/               # minco-python integration
+│   ├── generator.py          # GCOPTER optimize → sample flatness → write CSV
+│   ├── loader.py             # read CSV → ReferenceTrajectory
+│   └── test_smoke.py         # loader roundtrip smoke test
+│
+├── ros/                      # ROS 2 adapter layer (optional, Docker-based)
+│   ├── nmpc_node.py          # DQnmpcNode
+│   ├── planner_node.py       # PlannerNode
+│   └── adapters.py           # ROS msg ↔ Pydantic schema conversion
+│
+└── config/mujoco/default/    # YAML parameter files (nmpc.yaml)
 ```
 
 ### Dependency layers
 
 ```
-math  ──(numpy, casadi only)──
-schemas ──(pydantic)──
-nmpc  ──(acados, math, schemas)──
-trajectory ──(minco-python, schemas)──
-├── runner ──(nmpc, trajectory, quadrotor_sim.shm)──
-└── orchestrator ──(runner, subprocess)──
-ros  ──(rclpy, optional, Docker-based)──
+schema  ──(pydantic)──        # single frozen backbone
+math    ──(numpy, casadi)──   # no schema, no acados
+core    ──(schema)──          # stateless primitives
+utils   ──(numpy, casadi)──
+│
+nmpc    ──(acados, math, schema)──
+trajectory ──(minco-python, utils)──
+│
+workflows ──(core, nmpc, trajectory)──   # chains layers
+cli      ──(workflows)──                 # dispatch only
+ros      ──(rclpy, optional, Docker)──
 ```
 
-- `math` and `schemas` are importable without acados or minco.
+- `math`, `schema`, `core`, `utils` are importable without acados or minco.
 - `nmpc` works only when acados is built and on `PYTHONPATH`.
 - `trajectory/` needs minco-python built (CMake + scikit-build-core).
 - `ros` is optional — the Docker adapter (`docker/dq_nmpc_ros2.Dockerfile`) provides ROS 2 bridging.
@@ -104,7 +125,7 @@ uv run dq-codegen config/mujoco/default/nmpc.yaml
 
 ### Simulator
 
-The simulator lives as a submodule at `deps/mujoco_quadrotor/`. Its C++ binaries are built via xmake. The orchestrator (`dq-run`) handles this automatically, or you can build manually:
+The simulator lives as a submodule at `deps/mujoco_quadrotor/`. Its C++ binaries are built via xmake. The workflow (`workflows.run_nmpc`) handles this automatically, or you can build manually:
 
 ```bash
 cd deps/mujoco_quadrotor && uv run sim build
@@ -170,7 +191,8 @@ Synchronization: seqlock. Schema contract: `deps/mujoco_quadrotor/python/quadrot
 
 ## Pydantic Schema Conventions
 
-Schemas live in `src/dq_nmpc/schemas/`. Every schema has:
+Schemas live in `src/dq_nmpc/schema.py`. Every schema has:
+
 - `to_array() -> np.ndarray` — serialize to numpy
 - `from_array(arr) -> cls` — deserialize from numpy
 - Field-level validation (e.g., `thrust >= 0`, `mass > 0`)
