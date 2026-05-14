@@ -26,7 +26,7 @@ def calc_vec_cost(
     curr: VecN,
     weight: VecN,
 ) -> ca.MX | ca.SX:
-    diff = des - curr
+    diff = curr - des
     cost = ca.transpose(diff) @ ca.diag(weight) @ diff
     return cost
 
