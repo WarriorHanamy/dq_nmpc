@@ -16,11 +16,13 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.0",
     "quadrotor-sim",
+    "acados-template",
 ]
 
 [tool.uv.sources]
 minco-python = { path = "deps/minco-python" }
 quadrotor-sim = { path = "deps/mujoco_quadrotor" }
+acados-template = { path = "deps/acados/interfaces/acados_template" }
 
 [project.optional-dependencies]
 dev = [

@@ -13,6 +13,7 @@ build/
 venv/
 
 # acados build artifacts
+_acados_build/
 deps/acados/build/
 deps/mujoco_quadrotor/build/
 deps/mujoco_quadrotor/install/

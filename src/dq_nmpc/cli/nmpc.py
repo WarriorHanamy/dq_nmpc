@@ -4,11 +4,27 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
+from pathlib import Path
+
+
+def _setup_acados_env() -> None:
+    """Set acados environment variables and build acados if missing."""
+    project = Path(__file__).resolve().parents[3]
+    sys.path.insert(0, str(project))
+    from _acados_hook import build_acados  # noqa: E402
+
+    build_acados(project)
+    os.environ.setdefault("ACADOS_SOURCE_DIR", str(project / "deps" / "acados"))
+    lib_dir = str(project / "_acados_build" / "install" / "lib")
+    existing = os.environ.get("LD_LIBRARY_PATH", "")
+    os.environ["LD_LIBRARY_PATH"] = f"{lib_dir}:{existing}" if existing else lib_dir
 
 
 def main_run():
     """CLI entrypoint for dq-run: launch sim core + run NMPC."""
+    _setup_acados_env()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     from dq_nmpc.core.workspace import model_path
@@ -30,13 +46,14 @@ def main_run():
     )
 
 
+_DEFAULT_CONFIG = "src/dq_nmpc/config/mujoco/default/nmpc.yaml"
+
+
 def main_codegen():
     """CLI entrypoint for dq-codegen: acados code generation."""
+    _setup_acados_env()
     from dq_nmpc.workflows.codegen import codegen
 
-    if len(sys.argv) < 2:
-        print("Usage: dq-codegen <path_to_nmpc.yaml>")
-        sys.exit(1)
-
-    codegen(sys.argv[1])
+    config_path = _DEFAULT_CONFIG if len(sys.argv) < 2 else sys.argv[1]
+    codegen(config_path)
     print("Code generation complete.")
