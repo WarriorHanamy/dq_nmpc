@@ -13,15 +13,7 @@ external tooling.
 ![Simulation View](images/dq_code.gif)
 ![On-board Camera View](images/dq_code_camera.gif)
 
-## Dependencies
-
-- Python >= 3.12
-- [uv](https://docs.astral.sh/uv/) for environment management
-- [acados](https://github.com/acados/acados.git) (git submodule)
-- [xmake](https://xmake.io/) — to build the simulator C++ binaries
-- CMake, gcc/g++
-
-### Submodules
+## Submodules
 
 ```bash
 git submodule update --init
@@ -36,26 +28,31 @@ git submodule update --init
 ## Quick Start
 
 ```bash
-# 1. Install Python deps (includes building minco-python C++ extension)
-uv sync --extra dev
+# 1. Clone with submodules
+git clone --recurse-submodules <repo-url>
+cd dq_nmpc
 
-# 2. Build acados (one-time)
-cmake -B deps/acados/build -S deps/acados \
-  -DACADOS_WITH_OSQP=ON -DACADOS_PYTHON=ON
-cmake --build deps/acados/build
+# 2. Install everything (Python deps + acados + minco-python + simulator)
+uv sync
 
-# 3. Run NMPC code generation (requires acados env vars)
-export ACADOS_SOURCE_DIR="$(realpath deps/acados)"
-export LD_LIBRARY_PATH="$ACADOS_SOURCE_DIR/lib:$LD_LIBRARY_PATH"
-export PYTHONPATH="$ACADOS_SOURCE_DIR/interfaces/acados_template:$PYTHONPATH"
+# 3. NMPC code generation (one-time)
 uv run dq-codegen config/mujoco/default/nmpc.yaml
 
-# 4. Generate a trajectory CSV
+# 4. Generate trajectory CSV
 uv run dq-trajectory --shape circle --total-time 5.0 --ts 0.03
 
-# 5. Run: sim core + NMPC (orchestrator auto-builds sim binaries)
+# 5. Run sim core + NMPC
 uv run dq-run config/mujoco/default/nmpc.yaml trajectory.csv
 ```
+
+### Prerequisites
+
+- Python >= 3.12
+- [uv](https://docs.astral.sh/uv/)
+- [xmake](https://xmake.io/) (for simulator C++ binaries)
+- CMake, gcc/g++ (for acados)
+
+`uv sync` builds acados from `deps/acados/`, minco-python from `deps/minco-python/`, and installs the simulator from `deps/mujoco_quadrotor/`.
 
 ## Architecture
 
