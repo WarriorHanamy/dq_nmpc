@@ -12,10 +12,13 @@ import minco
 import numpy as np
 from minco.flatness_cache import CachedFlatness
 
+from dq_nmpc.schema import ARTIFACTS_DIR, TRAJECTORY_CSV_COLUMNS
 from dq_nmpc.trajectory.visualization import visualize_trajectory
 from dq_nmpc.utils.waypoints import make_sfc_box, waypoints_for_shape
 
-_MINCO_ROOT = Path(__file__).resolve().parents[3] / "deps" / "minco-python"
+_GCONFIG_ROOT = (
+    Path(__file__).resolve().parents[3] / "src" / "dq_nmpc" / "config" / "mujoco" / "default"
+)
 
 
 @contextmanager
@@ -34,7 +37,6 @@ def _sample_trajectory(
     flatness: CachedFlatness,
     ts: float,
     horizon_steps: int,
-    thrust_hover: float,
 ) -> list[tuple[float, ...]]:
     total = traj5.total_duration
     num_samples = min(int(total / ts) + 1, horizon_steps * 10)
@@ -51,7 +53,7 @@ def _sample_trajectory(
         yaw = np.arctan2(vel[1], vel[0]) if np.linalg.norm(vel[:2]) > 0.01 else 0.0
         yaw_rate = 0.0
 
-        thrust_nd, quat, body_rates = flatness.forward(vel, acc, jer, yaw, yaw_rate)
+        thrust, quat, body_rates = flatness.forward(vel, acc, jer, yaw, yaw_rate)
         rows.append(
             (
                 t,
@@ -61,6 +63,12 @@ def _sample_trajectory(
                 vel[0],
                 vel[1],
                 vel[2],
+                acc[0],
+                acc[1],
+                acc[2],
+                jer[0],
+                jer[1],
+                jer[2],
                 quat[0],
                 quat[1],
                 quat[2],
@@ -68,7 +76,7 @@ def _sample_trajectory(
                 body_rates[0],
                 body_rates[1],
                 body_rates[2],
-                float(thrust_nd * thrust_hover),
+                float(thrust[0]),
             )
         )
 
@@ -85,11 +93,10 @@ def generate_trajectory(
     num_waypoints: int = 10,
 ) -> Path:
     if output is None:
-        output = Path(f"out/{shape}/trajectory.csv")
+        output = Path(f"{ARTIFACTS_DIR}/{shape}/trajectory.csv")
     else:
         output = Path(output)
 
-    thrust_hover = mass * gravity
     flatness = CachedFlatness(mass=mass, gravity=gravity)
 
     inner_points = waypoints_for_shape(shape, num_waypoints)
@@ -114,7 +121,7 @@ def generate_trajectory(
         sfc_centers.append(center.copy())
         sfc_polys.append(make_sfc_box(center, half_extents))
 
-    with _in_dir(_MINCO_ROOT):
+    with _in_dir(_GCONFIG_ROOT):
         opt = minco.gcopter.GCOPTERPolytopeSFC()
     ok = opt.setup_basic_trajectory(
         head_pva,
@@ -131,30 +138,12 @@ def generate_trajectory(
     cost, traj5 = opt.optimize(rel_cost_tol=1e-3)
 
     horizon_steps = max(int(total_time / ts), 1)
-    rows = _sample_trajectory(traj5, flatness, ts, horizon_steps, thrust_hover)
+    rows = _sample_trajectory(traj5, flatness, ts, horizon_steps)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     with open(output, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(
-            [
-                "t",
-                "x",
-                "y",
-                "z",
-                "vx",
-                "vy",
-                "vz",
-                "qw",
-                "qx",
-                "qy",
-                "qz",
-                "wx",
-                "wy",
-                "wz",
-                "thrust",
-            ]
-        )
+        writer.writerow(list(TRAJECTORY_CSV_COLUMNS))
         writer.writerows(rows)
 
     print(f"Trajectory saved: {output}  ({len(rows)} points, cost={cost:.4f})")

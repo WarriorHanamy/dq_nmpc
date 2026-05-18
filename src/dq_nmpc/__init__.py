@@ -2,7 +2,7 @@
 
 Subpackages:
     math       -- Pure quaternion/dual-quaternion math (numpy + casadi, no acados/ROS)
-    schemas    -- Pydantic model re-export shim (thin wrapper over schema.py)
+    schema     -- Single-source Pydantic models + layout constants
     core       -- Stateless primitives (paths, subprocess, SHM helpers)
     cli        -- Zero-logic argument dispatch
     workflows  -- Domain-specific multi-step pipelines

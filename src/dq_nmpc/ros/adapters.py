@@ -6,9 +6,7 @@ keeping the math/nmpc layers free of ROS dependencies.
 
 from __future__ import annotations
 
-from dq_nmpc.schemas.control import ControlCommand
-from dq_nmpc.schemas.state import ClassicalState
-from dq_nmpc.schemas.trajectory import ReferenceTrajectory, TrajectoryPoint
+from dq_nmpc.schema import ClassicalState, ControlCommand, ReferenceTrajectory, TrajectoryPoint
 
 __all__ = [
     "odometry_to_classical",

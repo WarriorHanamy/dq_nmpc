@@ -11,6 +11,49 @@ import numpy as np
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+# ---------------------------------------------------------------------------
+# Layout constants — single source of truth for I/O contracts
+# ---------------------------------------------------------------------------
+
+TRAJECTORY_CSV_COLUMNS: tuple[str, ...] = (
+    "t",
+    "x",
+    "y",
+    "z",
+    "vx",
+    "vy",
+    "vz",
+    "ax",
+    "ay",
+    "az",
+    "jx",
+    "jy",
+    "jz",
+    "qw",
+    "qx",
+    "qy",
+    "qz",
+    "wx",
+    "wy",
+    "wz",
+    "thrust",
+)
+
+ARTIFACTS_DIR = "out"
+
+
+def csv_column_index(name: str) -> int:
+    """Return 0-based column index for a name in TRAJECTORY_CSV_COLUMNS.
+
+    Raises ValueError if the name is not a recognized column.
+    """
+    return TRAJECTORY_CSV_COLUMNS.index(name)
+
+
+# ---------------------------------------------------------------------------
+# Pydantic models
+# ---------------------------------------------------------------------------
+
 
 class NMPCParams(BaseModel):
     """NMPC solver hyperparameters.

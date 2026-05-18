@@ -29,8 +29,7 @@ from dq_nmpc.ros.adapters import (
     position_cmd_to_trajectory,
     wrench_from_control,
 )
-from dq_nmpc.schemas.config import NMPCConfig
-from dq_nmpc.schemas.control import ControlCommand
+from dq_nmpc.schema import ControlCommand, NMPCConfig
 
 # Function to create a dualquaternion, get quaernion and translatation and returns a dualquaternion
 dualquat_from_pose = dualquat_from_pose_casadi()

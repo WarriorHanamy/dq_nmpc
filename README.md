@@ -143,7 +143,7 @@ uv run pytest -v                    # run tests
 ```
 src/dq_nmpc/
 ├── math/                    # Pure math — Quaternion, DualQuaternion (numpy/casadi)
-├── schemas/                 # Pydantic I/O: state, control, trajectory, config
+├── schema.py                # Single-source Pydantic models + layout constants
 ├── nmpc/                    # NMPC solver (acados)
 │   ├── dynamics.py           #   Quadrotor ODE, dual-quaternion kinematics
 │   ├── controller.py         #   AcadosOcpSolver builder + codegen entrypoint
@@ -161,9 +161,9 @@ src/dq_nmpc/
 
 ```
 math  ──(numpy, casadi only, no acados)──
-schemas ──(pydantic)──
-nmpc  ──(acados, math, schemas)──
-trajectory ──(minco-python, schemas)──
+schema ──(pydantic)──
+nmpc  ──(acados, math, schema)──
+trajectory ──(minco-python, schema)──
 ├── runner ──(nmpc, trajectory, quadrotor_sim.shm)──
 └── orchestrator ──(runner, subprocess)──
 ros  ──(rclpy, optional)──

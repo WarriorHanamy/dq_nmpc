@@ -8,6 +8,8 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from dq_nmpc.schema import csv_column_index
+
 
 def _box_wireframe(center: np.ndarray, half_extents: tuple[float, float, float]) -> np.ndarray:
     """Return (3, N) array of box edge vertices with NaN separators."""
@@ -65,25 +67,37 @@ def visualize_trajectory(
     @return                  Path to the written HTML file
     """
     data = np.genfromtxt(csv_path, delimiter=",", skip_header=1)
-    t = data[:, 0]
-    pos = data[:, 1:4]
-    vel = data[:, 4:7]
-    w = data[:, 11:14]
-    thrust = data[:, 14]
+    _i = csv_column_index
+    t = data[:, _i("t")]
+    pos = data[:, _i("x") : _i("z") + 1]
+    vel = data[:, _i("vx") : _i("vz") + 1]
+    acc = data[:, _i("ax") : _i("az") + 1]
+    jer = data[:, _i("jx") : _i("jz") + 1]
+    w = data[:, _i("wx") : _i("wz") + 1]
+    thrust = data[:, _i("thrust")]
 
     v_norm = np.linalg.norm(vel, axis=1)
 
     fig = make_subplots(
-        rows=3,
+        rows=5,
         cols=2,
         column_widths=[0.55, 0.45],
         specs=[
-            [{"type": "scene", "rowspan": 3}, {"type": "xy"}],
+            [{"type": "scene", "rowspan": 5}, {"type": "xy"}],
+            [None, {"type": "xy"}],
+            [None, {"type": "xy"}],
             [None, {"type": "xy"}],
             [None, {"type": "xy"}],
         ],
-        subplot_titles=("", "Position [m]", "Velocity & Body Rates", "Thrust [N]"),
-        vertical_spacing=0.08,
+        subplot_titles=(
+            "",
+            "Position [m]",
+            "Velocity & Body Rates",
+            "Acceleration [m/s²]",
+            "Jerk [m/s³]",
+            "Thrust [N]",
+        ),
+        vertical_spacing=0.05,
     )
 
     # --- Left panel: 3D trajectory ---
@@ -158,7 +172,7 @@ def visualize_trajectory(
         col=1,
     )
 
-    # --- Right top: position ---
+    # --- Row 1: position ---
     fig.add_trace(
         go.Scatter(x=t, y=pos[:, 0], name="x", line=dict(width=1.5), legendgroup="pos"),
         row=1,
@@ -175,7 +189,7 @@ def visualize_trajectory(
         col=2,
     )
 
-    # --- Right middle: velocity + body rates ---
+    # --- Row 2: velocity + body rates ---
     fig.add_trace(
         go.Scatter(x=t, y=v_norm, name="|v| [m/s]", line=dict(width=1.5)),
         row=2,
@@ -212,10 +226,44 @@ def visualize_trajectory(
         col=2,
     )
 
-    # --- Right bottom: thrust ---
+    # --- Row 3: acceleration ---
+    fig.add_trace(
+        go.Scatter(x=t, y=acc[:, 0], name="ax", line=dict(width=1.5), legendgroup="acc"),
+        row=3,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(x=t, y=acc[:, 1], name="ay", line=dict(width=1.5), legendgroup="acc"),
+        row=3,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(x=t, y=acc[:, 2], name="az", line=dict(width=1.5), legendgroup="acc"),
+        row=3,
+        col=2,
+    )
+
+    # --- Row 4: jerk ---
+    fig.add_trace(
+        go.Scatter(x=t, y=jer[:, 0], name="jx", line=dict(width=1.5), legendgroup="jer"),
+        row=4,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(x=t, y=jer[:, 1], name="jy", line=dict(width=1.5), legendgroup="jer"),
+        row=4,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(x=t, y=jer[:, 2], name="jz", line=dict(width=1.5), legendgroup="jer"),
+        row=4,
+        col=2,
+    )
+
+    # --- Row 5: thrust ---
     fig.add_trace(
         go.Scatter(x=t, y=thrust, name="thrust [N]", line=dict(width=1.5)),
-        row=3,
+        row=5,
         col=2,
     )
 
@@ -235,9 +283,11 @@ def visualize_trajectory(
         legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=1.02),
     )
 
-    fig.update_xaxes(title_text="Time [s]", row=3, col=2)
+    fig.update_xaxes(title_text="Time [s]", row=5, col=2)
     fig.update_yaxes(title_text="[m/s] / [rad/s]", row=2, col=2)
-    fig.update_yaxes(title_text="[N]", row=3, col=2)
+    fig.update_yaxes(title_text="[m/s²]", row=3, col=2)
+    fig.update_yaxes(title_text="[m/s³]", row=4, col=2)
+    fig.update_yaxes(title_text="[N]", row=5, col=2)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.write_html(str(output_path))

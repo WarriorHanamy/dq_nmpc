@@ -11,12 +11,13 @@ ROS 2 is an optional adapter layer (Docker-based).
 ```
 src/dq_nmpc/
 ├── schema.py                 # SINGLE SOURCE OF TRUTH: all frozen Pydantic models
-│                              #   NMPCConfig, NMPCParams, ControlCommand,
-│                              #   DualQuaternionState, ClassicalState,
-│                              #   TrajectoryPoint, ReferenceTrajectory,
-│                              #   SHMConfig, DockerConfig
-│
-├── schemas/                  # Thin re-export shim (backward compat)
+│                              #   Models: NMPCConfig, NMPCParams, ControlCommand,
+│                              #     DualQuaternionState, ClassicalState,
+│                              #     TrajectoryPoint, ReferenceTrajectory,
+│                              #     SHMConfig, DockerConfig
+│                              #   Layout constants:
+│                              #     TRAJECTORY_CSV_COLUMNS, ARTIFACTS_DIR,
+│                              #     csv_column_index()
 │
 ├── type.py                   # Scalar, Vector type aliases (numpy | casadi)
 │
