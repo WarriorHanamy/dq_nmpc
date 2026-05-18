@@ -38,7 +38,6 @@ def _sample_trajectory(
     traj5: Any,
     flatness: CachedFlatness,
     ts: float,
-    horizon_steps: int,
 ) -> list[tuple[float, ...]]:
     duration = traj5.total_duration
     num_samples = int(duration / ts) + 1
@@ -141,7 +140,7 @@ def generate_trajectory(
 
     cost, traj5 = opt.optimize(rel_cost_tol=1e-3)
 
-    rows = _sample_trajectory(traj5, flatness, config.ts, 100)
+    rows = _sample_trajectory(traj5, flatness, config.ts)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     with open(output, "w", newline="") as f:
@@ -151,6 +150,12 @@ def generate_trajectory(
         writer.writerows(rows)
 
     print(f"Trajectory saved: {output}  ({len(rows)} points, cost={cost:.4f})")
+
+    npz_path = output.with_suffix(".npz")
+    durations = np.array(list(traj5.durations), dtype=np.float64)
+    coeffs = np.stack([traj5[i].get_coeff_mat() for i in range(len(traj5))])
+    np.savez(npz_path, durations=durations, coeffs=coeffs)
+    print(f"Trajectory coeffs saved: {npz_path}")
 
     viz_path = output.with_suffix(".html")
     visualize_trajectory(

@@ -232,29 +232,25 @@ def make_dualquat_get_all():
 
 
 def make_get_translation():
-    # Functions that computes the translation from a dual quaternion
-    values = _dq_sym._get_trans_sym.get[:, 0]
+    values = _dq_sym.get_trans.get[:, 0]
     f_trans = Function("f_trans", [_dual_sym], [values])
     return f_trans
 
 
 def make_get_real_part():
-    # Function that get the real part form the dual quaternon
-    values = _dq_sym._get_real_sym.get[:, 0]
+    values = _dq_sym.Qr.get[:, 0]
     f_real = Function("f_real", [_dual_sym], [values])
     return f_real
 
 
 def make_get_dual_part():
-    # Function that gets the dual part of the dualquaternion
-    values = _dq_sym._get_dual_sym.get[:, 0]
+    values = _dq_sym.Qd.get[:, 0]
     f_dual = Function("f_dual", [_dual_sym], [values])
     return f_dual
 
 
 def make_get_quaternion():
-    # Function that get the quaternion of the dualquaternion, this elemens is the same as the real part
-    values = _dq_sym._get_quat_sym.get[:, 0]
+    values = _dq_sym.Qr.get[:, 0]
     f_quat = Function("f_quat", [_dual_sym], [values])
     return f_quat
 

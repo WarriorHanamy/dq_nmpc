@@ -35,5 +35,6 @@ Thumbs.db
 out/
 trajectory.csv
 trajectory.html
+acados_ocp_mcp.json
 
 .opencode/

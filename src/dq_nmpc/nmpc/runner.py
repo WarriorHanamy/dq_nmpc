@@ -12,20 +12,13 @@ import time
 from pathlib import Path
 
 import numpy as np
+from minco.flatness_cache import CachedFlatness
 
 from dq_nmpc.nmpc.controller import solver
-from dq_nmpc.nmpc.dynamics import (
-    make_body_to_inertial_rotation,
-    make_body_velocity_from_twist,
-    make_dualquat_mul_conj,
-    make_get_quaternion,
-    make_get_translation,
-    make_inertial_to_body_rotation,
-    make_inertial_velocity_from_twist,
-)
+from dq_nmpc.nmpc.dynamics import make_body_velocity_from_twist
 from dq_nmpc.nmpc.functions import dualquat_from_pose_casadi
 from dq_nmpc.schema import NMPCConfig
-from dq_nmpc.trajectory.loader import load_trajectory_csv
+from dq_nmpc.trajectory.loader import load_trajectory_npz
 
 try:
     from quadrotor_sim.shm import (
@@ -44,13 +37,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 dualquat_from_pose = dualquat_from_pose_casadi()
-get_trans = make_get_translation()
-get_quat = make_get_quaternion()
 dual_twist = make_body_velocity_from_twist()
-velocity_from_twist = make_inertial_velocity_from_twist()
-rot = make_body_to_inertial_rotation()
-inverse_rot = make_inertial_to_body_rotation()
-error_dual_f = make_dualquat_mul_conj()
 
 
 def run_nmpc(
@@ -77,26 +64,15 @@ def run_nmpc(
 
     acados_ocp_solver, ocp = solver(params, flag_build)
 
-    trajectory = load_trajectory_csv(trajectory_path)
-    num_ref = len(trajectory.points)
-    if num_ref < N_prediction:
-        logger.warning("Trajectory has %d points, horizon needs %d", num_ref, N_prediction)
+    Tsim = params["nmpc"]["horizon_time"] / N_prediction
+    logger.info(
+        "OCP shooting interval Tsim = horizon_time/N = %.4f s (control ts = %.4f s)", Tsim, ts
+    )
 
-    X_d = np.zeros((14, N_prediction), dtype=np.float64)
-    u_d = np.zeros((4, N_prediction), dtype=np.float64)
-
-    for i in range(min(num_ref, N_prediction)):
-        tp = trajectory.points[i]
-        dual_d = dualquat_from_pose(tp.qw, tp.qx, tp.qy, tp.qz, tp.x, tp.y, tp.z)
-        angular_linear_d = np.array([tp.wx, tp.wy, tp.wz, tp.vx, tp.vy, tp.vz])
-        dual_twist_d = dual_twist(angular_linear_d, dual_d)
-        X_d[0:8, i] = np.array(dual_d).ravel()
-        X_d[8:14, i] = np.array(dual_twist_d).ravel()
-        u_d[0, i] = tp.thrust
-        w_dot = np.array([0.0, 0.0, 0.0])
-        u_d[1:4, i] = J @ w_dot + np.cross(
-            np.array([tp.wx, tp.wy, tp.wz]), J @ np.array([tp.wx, tp.wy, tp.wz])
-        )
+    traj5 = load_trajectory_npz(trajectory_path)
+    traj_duration = traj5.total_duration
+    flatness = CachedFlatness(mass=params["mass"], gravity=params["gravity"])
+    logger.info("Trajectory loaded: duration=%.2f s, %d pieces", traj_duration, len(traj5))
 
     state_reader = ShmReader(SHM_STATE_FILE, QuadrotorStateC, 192)
     ctrl_writer = ShmWriter(SHM_CTRL_FILE, QuadrotorControlC, 64)
@@ -120,7 +96,9 @@ def run_nmpc(
     except FileNotFoundError:
         ctrl_writer.create()
 
-    logger.info("NMPC runner started (ts=%.3f s, horizon=%d steps)", ts, N_prediction)
+    logger.info(
+        "NMPC runner started (ts=%.3f s, Tsim=%.3f s, horizon=%d steps)", ts, Tsim, N_prediction
+    )
 
     dt_ns = int(ts * 1e9)
     next_wake = time.monotonic_ns()
@@ -130,6 +108,36 @@ def run_nmpc(
         while True:
             if max_iter > 0 and iteration >= max_iter:
                 break
+
+            t_now = iteration * ts
+
+            X_d = np.zeros((14, N_prediction), dtype=np.float64)
+            u_d = np.zeros((4, N_prediction), dtype=np.float64)
+
+            for k in range(N_prediction):
+                t_ref = min(t_now + k * Tsim, traj_duration)
+                pos = np.array(traj5.get_pos(t_ref), dtype=np.float64).ravel()
+                vel = np.array(traj5.get_vel(t_ref), dtype=np.float64).ravel()
+                acc = np.array(traj5.get_acc(t_ref), dtype=np.float64).ravel()
+                jer = np.array(traj5.get_jer(t_ref), dtype=np.float64).ravel()
+
+                yaw = np.arctan2(vel[1], vel[0]) if np.linalg.norm(vel[:2]) > 0.01 else 0.0
+                thrust_val, quat, body_rates = flatness.forward(vel, acc, jer, yaw, 0.0)
+
+                dual_d = dualquat_from_pose(
+                    quat[0], quat[1], quat[2], quat[3], pos[0], pos[1], pos[2]
+                )
+                angular_linear_d = np.array(
+                    [body_rates[0], body_rates[1], body_rates[2], vel[0], vel[1], vel[2]]
+                )
+                dual_twist_d = dual_twist(angular_linear_d, dual_d)
+
+                X_d[0:8, k] = np.array(dual_d).ravel()
+                X_d[8:14, k] = np.array(dual_twist_d).ravel()
+
+                u_d[0, k] = float(thrust_val[0])
+                w_dot = np.array([0.0, 0.0, 0.0])
+                u_d[1:4, k] = J @ w_dot + np.cross(body_rates, J @ body_rates)
 
             while not state_reader.read(state_buf):
                 time.sleep(0.0001)
@@ -195,7 +203,7 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     if len(sys.argv) < 3:
-        print("Usage: dq-nmpc-runner <nmpc.yaml> <trajectory.csv> [--no-build] [--max-iter N]")
+        print("Usage: dq-nmpc-runner <nmpc.yaml> <trajectory.npz> [--no-build] [--max-iter N]")
         sys.exit(1)
 
     config_path = sys.argv[1]

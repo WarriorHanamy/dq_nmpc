@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
+from typing import Any
+
+import numpy as np
 
 from dq_nmpc.schema import TRAJECTORY_CSV_COLUMNS, NMPCConfig, ReferenceTrajectory, TrajectoryPoint
 
@@ -69,3 +72,17 @@ def validate_trajectory_ts(csv_path: str | Path, config: NMPCConfig) -> None:
     ts_nmpc = config.nmpc.ts
     if abs(ts_csv - ts_nmpc) > 1e-6:
         raise ValueError(f"ts mismatch: trajectory={ts_csv} vs nmpc config={ts_nmpc}")
+
+
+def load_trajectory_npz(path: str | Path) -> Any:
+    """Reconstruct a minco Trajectory5 from a .npz coefficient file.
+
+    @param[in] path  Path to trajectory.npz (alongside trajectory.csv)
+    @return          minco.poly_traj.Trajectory5 instance
+    """
+    import minco
+
+    data = np.load(path)
+    durations = data["durations"].tolist()
+    coeff_mats = [data["coeffs"][i] for i in range(len(durations))]
+    return minco.poly_traj.Trajectory5(durations, coeff_mats)

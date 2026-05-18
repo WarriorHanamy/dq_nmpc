@@ -28,7 +28,7 @@ def nmpc_loop(
     """Run the full NMPC pipeline: build sim, launch core, control loop, cleanup.
 
     @param[in] config_path     Path to nmpc.yaml
-    @param[in] trajectory_path Path to trajectory.csv
+    @param[in] trajectory_path Path to trajectory.npz
     @param[in] flag_build      If True, run acados code generation
     @param[in] max_iter        Maximum NMPC iterations (0 = unlimited)
     """
