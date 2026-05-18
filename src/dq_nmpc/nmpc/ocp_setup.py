@@ -1,9 +1,8 @@
-from acados_template import AcadosOcp, AcadosOcpSolver, AcadosSimSolver
-from dq_nmpc.nmpc.dynamics import quadrotorModel
-from casadi import Function, MX, vertcat, sin, cos, fabs, DM
-import casadi as ca
-
 import numpy as np
+from acados_template import AcadosOcp
+from casadi import MX
+
+from dq_nmpc.nmpc.dynamics import make_quadrotor_model
 
 
 def create_ocp_solver(
@@ -30,7 +29,7 @@ def create_ocp_solver(
 
     # Model of the system
     model, get_trans, get_quat, constraint, error_lie_2, dual_error, ln, Ad, conjugate, rotation = (
-        quadrotorModel(L)
+        make_quadrotor_model(L)
     )
 
     # Constructing the optimal control problem

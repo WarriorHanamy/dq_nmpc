@@ -2,13 +2,13 @@ import numpy as np
 from acados_template import AcadosOcp, AcadosOcpSolver
 from casadi import MX
 
-from dq_nmpc.nmpc.dynamics import export_model
+from dq_nmpc.nmpc.dynamics import export_acados_model
 
 
 def solver(params, flag=True):
     # get dynamical model
     model, get_trans, get_quat, constraint, error_lie_2, dual_error, ln, Ad, conjugate, rotation = (
-        export_model(params)
+        export_acados_model(params)
     )
 
     # Get size of the system
@@ -94,6 +94,8 @@ def solver(params, flag=True):
     ln_error = ln(error_dual)
     error_w = w_b - ref_w_b
     error_v = v_b - ref_v_i
+
+    # TODO to remove it.
     error_u = ref_control - u
 
     # Cost Function

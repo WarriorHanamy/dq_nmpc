@@ -15,13 +15,13 @@ import numpy as np
 
 from dq_nmpc.nmpc.controller import solver
 from dq_nmpc.nmpc.dynamics import (
-    dual_velocity_casadi,
-    dualquat_quat_casadi,
-    dualquat_trans_casadi,
-    error_dual_aux_casadi,
-    rotation_casadi,
-    rotation_inverse_casadi,
-    velocities_from_twist_casadi,
+    make_body_to_inertial_rotation,
+    make_body_velocity_from_twist,
+    make_dualquat_mul_conj,
+    make_get_quaternion,
+    make_get_translation,
+    make_inertial_to_body_rotation,
+    make_inertial_velocity_from_twist,
 )
 from dq_nmpc.nmpc.functions import dualquat_from_pose_casadi
 from dq_nmpc.schema import NMPCConfig
@@ -44,13 +44,13 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 dualquat_from_pose = dualquat_from_pose_casadi()
-get_trans = dualquat_trans_casadi()
-get_quat = dualquat_quat_casadi()
-dual_twist = dual_velocity_casadi()
-velocity_from_twist = velocities_from_twist_casadi()
-rot = rotation_casadi()
-inverse_rot = rotation_inverse_casadi()
-error_dual_f = error_dual_aux_casadi()
+get_trans = make_get_translation()
+get_quat = make_get_quaternion()
+dual_twist = make_body_velocity_from_twist()
+velocity_from_twist = make_inertial_velocity_from_twist()
+rot = make_body_to_inertial_rotation()
+inverse_rot = make_inertial_to_body_rotation()
+error_dual_f = make_dualquat_mul_conj()
 
 
 def run_nmpc(

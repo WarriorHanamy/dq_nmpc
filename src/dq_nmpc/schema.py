@@ -407,3 +407,22 @@ class SHMConfig(BaseModel):
     def default(cls) -> SHMConfig:
         """Return instance with default paths."""
         return cls()
+
+
+class TrajectoryConfig(BaseModel):
+    """Trajectory generation parameters — single source of truth."""
+
+    model_config = ConfigDict(frozen=True)
+
+    shape: str = Field(default="circle", description="Trajectory shape")
+    ts: float = Field(gt=0.0, description="Sample time, shared with NMPC [s]")
+    mass: float = Field(gt=0.0, description="Flatness model mass [kg]")
+    gravity: float = Field(default=9.80665, gt=0.0, description="Gravity [m/s²]")
+    num_waypoints: int = Field(default=10, gt=1, description="Number of intermediate waypoints")
+
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> TrajectoryConfig:
+        """Load trajectory generation config from YAML."""
+        with open(path, "r") as stream:
+            raw = yaml.safe_load(stream)
+        return cls(**raw)

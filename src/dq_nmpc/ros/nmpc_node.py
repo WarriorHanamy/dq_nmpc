@@ -13,13 +13,13 @@ from visualization_msgs.msg import Marker
 
 from dq_nmpc.nmpc.controller import solver
 from dq_nmpc.nmpc.dynamics import (
-    dual_velocity_casadi,
-    dualquat_quat_casadi,
-    dualquat_trans_casadi,
-    error_dual_aux_casadi,
-    rotation_casadi,
-    rotation_inverse_casadi,
-    velocities_from_twist_casadi,
+    make_body_velocity_from_twist,
+    make_get_quaternion,
+    make_get_translation,
+    make_dualquat_mul_conj,
+    make_body_to_inertial_rotation,
+    make_inertial_to_body_rotation,
+    make_inertial_velocity_from_twist,
 )
 
 # Libraries of dual-quaternions
@@ -35,25 +35,25 @@ from dq_nmpc.schema import ControlCommand, NMPCConfig
 dualquat_from_pose = dualquat_from_pose_casadi()
 
 # Function to get the trasnlation from the dualquaternion, input dualquaternion and get a translation expressed as a quaternion [0.0, tx, ty,tz]
-get_trans = dualquat_trans_casadi()
+get_trans = make_get_translation()
 
 # Function to get the quaternion from the dualquaternion, input dualquaternion and get a the orientation quaternions [qw, qx, qy, qz]
-get_quat = dualquat_quat_casadi()
+get_quat = make_get_quaternion()
 
 # Function that maps linear velocities in the inertial frame and angular velocities in the body frame to both of them in the body frame, this is known as twist using dualquaternions
-dual_twist = dual_velocity_casadi()
+dual_twist = make_body_velocity_from_twist()
 
 # Function that maps linear and angular velocites in the body frame to the linear velocity in the inertial frame and the angular velocity still in th body frame
-velocity_from_twist = velocities_from_twist_casadi()
+velocity_from_twist = make_inertial_velocity_from_twist()
 
 # Function that returns a vector from the body frame to the inertial frame
-rot = rotation_casadi()
+rot = make_body_to_inertial_rotation()
 
 # Function that returns a vector from the inertial frame to the body frame
-inverse_rot = rotation_inverse_casadi()
+inverse_rot = make_inertial_to_body_rotation()
 
 # Function to check for the shorthest path
-error_dual_f = error_dual_aux_casadi()
+error_dual_f = make_dualquat_mul_conj()
 
 
 class DQnmpcNode(Node):

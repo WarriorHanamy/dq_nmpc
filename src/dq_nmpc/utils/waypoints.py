@@ -2,7 +2,7 @@
 
 import numpy as np
 
-SHAPES: tuple[str, ...] = ("hover", "line", "circle", "fig8")
+SHAPES: tuple[str, ...] = ("circle", "line", "fig8")
 
 
 def make_sfc_box(
@@ -31,10 +31,7 @@ def make_sfc_box(
 
 
 def waypoints_for_shape(shape: str, num_waypoints: int = 10) -> np.ndarray:
-    if shape == "hover":
-        center = np.array([0.0, 0.0, 2.0])
-        return np.tile(center[:, None], (1, num_waypoints - 1))
-    elif shape == "line":
+    if shape == "line":
         start = np.array([0.0, 0.0, 1.5])
         end = np.array([5.0, 0.0, 1.5])
         return np.linspace(start, end, num_waypoints - 1).T

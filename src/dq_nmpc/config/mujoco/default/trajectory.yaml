@@ -1,0 +1,5 @@
+shape: circle
+ts: 0.03
+mass: 1.0
+gravity: 9.80665
+num_waypoints: 10

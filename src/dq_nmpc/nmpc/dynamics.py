@@ -1,90 +1,100 @@
-import numpy as np
 import casadi as ca
 import numpy as np
-from dq_nmpc.math.quaternion import Quaternion
-from dq_nmpc.math.dual_quaternion import DualQuaternion
-from casadi import Function
-from acados_template import AcadosModel
-from scipy.spatial.transform import Rotation as R
-from scipy.linalg import expm
-from scipy.linalg import block_diag
-from scipy import sparse
 import osqp
+from acados_template import AcadosModel
+from casadi import Function
+from scipy import sparse
+from scipy.linalg import block_diag, expm
+from scipy.spatial.transform import Rotation as R
+
+from dq_nmpc.math.dual_quaternion import DualQuaternion
+from dq_nmpc.math.quaternion import Quaternion
 
 # Sample time symbolic
-ts = ca.MX.sym("ts", 1, 1)
+_ts_sym = ca.MX.sym("ts", 1, 1)
 
 # Defining Dual Quaternion informtatio
-qw_1 = ca.MX.sym("qw_1", 1, 1)
-qx_1 = ca.MX.sym("qx_1", 1, 1)
-qy_1 = ca.MX.sym("qy_1", 1, 1)
-qz_1 = ca.MX.sym("qz_1", 1, 1)
-q_1 = ca.vertcat(qw_1, qx_1, qy_1, qz_1)
-dw_1 = ca.MX.sym("dw_1", 1, 1)
-dx_1 = ca.MX.sym("dx_1", 1, 1)
-dy_1 = ca.MX.sym("dy_1", 1, 1)
-dz_1 = ca.MX.sym("dz_1", 1, 1)
-d_1 = ca.vertcat(dw_1, dx_1, dy_1, dz_1)
+_qw_sym = ca.MX.sym("qw", 1, 1)
+_qx_sym = ca.MX.sym("qx", 1, 1)
+_qy_sym = ca.MX.sym("qy", 1, 1)
+_qz_sym = ca.MX.sym("qz", 1, 1)
+_q_sym = ca.vertcat(_qw_sym, _qx_sym, _qy_sym, _qz_sym)
+_dw_sym = ca.MX.sym("dw", 1, 1)
+_dx_sym = ca.MX.sym("dx", 1, 1)
+_dy_sym = ca.MX.sym("dy", 1, 1)
+_dz_sym = ca.MX.sym("dz", 1, 1)
+_d_sym = ca.vertcat(_dw_sym, _dx_sym, _dy_sym, _dz_sym)
 
 # Creating auxiliar variables
-dual_1 = ca.vertcat(qw_1, qx_1, qy_1, qz_1, dw_1, dx_1, dy_1, dz_1)
+_dual_sym = ca.vertcat(_qw_sym, _qx_sym, _qy_sym, _qz_sym, _dw_sym, _dx_sym, _dy_sym, _dz_sym)
 
 # Defining Desired Frame
-qw_1d = ca.MX.sym("qw_1d", 1, 1)
-qx_1d = ca.MX.sym("qx_1d", 1, 1)
-qy_1d = ca.MX.sym("qy_1d", 1, 1)
-qz_1d = ca.MX.sym("qz_1d", 1, 1)
-q_1d = ca.vertcat(qw_1d, qx_1d, qy_1d, qz_1d)
+_qw_des_sym = ca.MX.sym("qw_1d", 1, 1)
+_qx_des_sym = ca.MX.sym("qx_1d", 1, 1)
+_qy_des_sym = ca.MX.sym("qy_1d", 1, 1)
+_qz_des_sym = ca.MX.sym("qz_1d", 1, 1)
+_q_des_sym = ca.vertcat(_qw_des_sym, _qx_des_sym, _qy_des_sym, _qz_des_sym)
 
-dw_1d = ca.MX.sym("dw_1d", 1, 1)
-dx_1d = ca.MX.sym("dx_1d", 1, 1)
-dy_1d = ca.MX.sym("dy_1d", 1, 1)
-dz_1d = ca.MX.sym("dz_1d", 1, 1)
-d_1d = ca.vertcat(dw_1d, dx_1d, dy_1d, dz_1d)
+_dw_des_sym = ca.MX.sym("dw_1d", 1, 1)
+_dx_des_sym = ca.MX.sym("dx_1d", 1, 1)
+_dy_des_sym = ca.MX.sym("dy_1d", 1, 1)
+_dz_des_sym = ca.MX.sym("dz_1d", 1, 1)
+_d_des_sym = ca.vertcat(_dw_des_sym, _dx_des_sym, _dy_des_sym, _dz_des_sym)
 
 # Symbolic Variables
-dual_1d = ca.vertcat(qw_1d, qx_1d, qy_1d, qz_1d, dw_1d, dx_1d, dy_1d, dz_1d)
+_dual_des_sym = ca.vertcat(
+    _qw_des_sym,
+    _qx_des_sym,
+    _qy_des_sym,
+    _qz_des_sym,
+    _dw_des_sym,
+    _dx_des_sym,
+    _dy_des_sym,
+    _dz_des_sym,
+)
 
 # Defining the desired Velocity using symbolics
-vx_1d = ca.MX.sym("vx_1d", 1, 1)
-vy_1d = ca.MX.sym("vy_1d", 1, 1)
-vz_1d = ca.MX.sym("vz_1d", 1, 1)
+_vx_des_sym = ca.MX.sym("vx_1d", 1, 1)
+_vy_des_sym = ca.MX.sym("vy_1d", 1, 1)
+_vz_des_sym = ca.MX.sym("vz_1d", 1, 1)
 
-wx_1d = ca.MX.sym("wx_1d", 1, 1)
-wy_1d = ca.MX.sym("wy_1d", 1, 1)
-wz_1d = ca.MX.sym("wz_1d", 1, 1)
+_wx_des_sym = ca.MX.sym("wx_1d", 1, 1)
+_wy_des_sym = ca.MX.sym("wy_1d", 1, 1)
+_wz_des_sym = ca.MX.sym("wz_1d", 1, 1)
 
-Vd = ca.vertcat(0.0, vx_1d, vy_1d, vz_1d)
-Wd = ca.vertcat(0.0, wx_1d, wy_1d, wz_1d)
+_Vd_sym = ca.vertcat(0.0, _vx_des_sym, _vy_des_sym, _vz_des_sym)
+_Wd_sym = ca.vertcat(0.0, _wx_des_sym, _wy_des_sym, _wz_des_sym)
 
 # Symbolic variables desired velocities
-w_1d = ca.vertcat(wx_1d, wy_1d, wz_1d, vx_1d, vy_1d, vz_1d)
+_w_des_sym = ca.vertcat(
+    _wx_des_sym, _wy_des_sym, _wz_des_sym, _vx_des_sym, _vy_des_sym, _vz_des_sym
+)
 
 # Defining the control gains using symbolic variables
-kr1 = ca.MX.sym("kr1", 1, 1)
-kr2 = ca.MX.sym("kr2", 1, 1)
-kr3 = ca.MX.sym("kr3", 1, 1)
+_kr1_sym = ca.MX.sym("kr1", 1, 1)
+_kr2_sym = ca.MX.sym("kr2", 1, 1)
+_kr3_sym = ca.MX.sym("kr3", 1, 1)
 
-kd1 = ca.MX.sym("kd1", 1, 1)
-kd2 = ca.MX.sym("kd2", 1, 1)
-kd3 = ca.MX.sym("kd3", 1, 1)
+_kd1_sym = ca.MX.sym("kd1", 1, 1)
+_kd2_sym = ca.MX.sym("kd2", 1, 1)
+_kd3_sym = ca.MX.sym("kd3", 1, 1)
 
-Kr = ca.vertcat(0.0, kr1, kr2, kr3)
-Kd = ca.vertcat(0.0, kd1, kd2, kd3)
+_Kr_sym = ca.vertcat(0.0, _kr1_sym, _kr2_sym, _kr3_sym)
+_Kd_sym = ca.vertcat(0.0, _kd1_sym, _kd2_sym, _kd3_sym)
 
 
 # Creating states of the current dualquaternion
-Q1 = DualQuaternion(q_real=Quaternion(q=q_1), q_dual=Quaternion(q=d_1))
+_dq_sym = DualQuaternion(q_real=Quaternion(q=_q_sym), q_dual=Quaternion(q=_d_sym))
 
 # Creating the desired quaternion
-Q1d = DualQuaternion(q_real=Quaternion(q=q_1d), q_dual=Quaternion(q=d_1d))
+_dq_des_sym = DualQuaternion(q_real=Quaternion(q=_q_des_sym), q_dual=Quaternion(q=_d_des_sym))
 
 # Creating the Desired dualquaternion twist
-W1d = DualQuaternion(q_real=Quaternion(q=Wd), q_dual=Quaternion(q=Vd))
+_twist_des_sym = DualQuaternion(q_real=Quaternion(q=_Wd_sym), q_dual=Quaternion(q=_Vd_sym))
 
 
 # Quaternion rotation
-def rotation_casadi():
+def make_body_to_inertial_rotation():
     # Function that enables the rotation of a vector using quaternions
 
     # Creation of the symbolic variables for the quaternion and the vector
@@ -127,7 +137,7 @@ def rotation_casadi():
     return f_rot
 
 
-def rotation_inverse_casadi():
+def make_inertial_to_body_rotation():
     # Creation of the symbolic variables for the quaternion and the vector
     quat_aux_1 = ca.MX.sym("quat_aux_1", 4, 1)
     vector_aux_1 = ca.MX.sym("vector_aux_1", 3, 1)
@@ -171,13 +181,13 @@ def rotation_inverse_casadi():
 
 
 # Creating functions which are going to be used later
-# f_rotation move a vector from the body frame to the inertial frame
-f_rotation = rotation_casadi()
-# f_rotation move a vector from the inertial frame to the body frame
-f_rotation_inverse = rotation_inverse_casadi()
+# _f_rotation_sym move a vector from the body frame to the inertial frame
+_f_rotation_sym = make_body_to_inertial_rotation()
+# _f_rotation_sym move a vector from the inertial frame to the body frame
+_f_rotation_inverse_sym = make_inertial_to_body_rotation()
 
 
-def rotation(quat_aux_1, vector_aux_1):
+def rotate_vector_body_to_inertial(quat_aux_1, vector_aux_1):
     # Function that enables the rotation of a vector using quaternions
 
     # Defining the pure quaternion based on the vector information
@@ -214,50 +224,50 @@ def rotation(quat_aux_1, vector_aux_1):
     return vector_i[1:4, 0]
 
 
-def dual_quat_casadi():
+def make_dualquat_get_all():
     # Function that obtains the elements of the dual quaternion  real an dual part
-    values = Q1.get[:, 0]
-    dualquaternion_f = Function("dualquaternion_f", [dual_1], [values])
+    values = _dq_sym.get[:, 0]
+    dualquaternion_f = Function("dualquaternion_f", [_dual_sym], [values])
     return dualquaternion_f
 
 
-def dualquat_trans_casadi():
+def make_get_translation():
     # Functions that computes the translation from a dual quaternion
-    values = Q1.get_trans.get[:, 0]
-    f_trans = Function("f_trans", [dual_1], [values])
+    values = _dq_sym._get_trans_sym.get[:, 0]
+    f_trans = Function("f_trans", [_dual_sym], [values])
     return f_trans
 
 
-def dualquat_get_real_casadi():
+def make_get_real_part():
     # Function that get the real part form the dual quaternon
-    values = Q1.get_real.get[:, 0]
-    f_real = Function("f_real", [dual_1], [values])
+    values = _dq_sym._get_real_sym.get[:, 0]
+    f_real = Function("f_real", [_dual_sym], [values])
     return f_real
 
 
-def dualquat_get_dual_casadi():
+def make_get_dual_part():
     # Function that gets the dual part of the dualquaternion
-    values = Q1.get_dual.get[:, 0]
-    f_dual = Function("f_dual", [dual_1], [values])
+    values = _dq_sym._get_dual_sym.get[:, 0]
+    f_dual = Function("f_dual", [_dual_sym], [values])
     return f_dual
 
 
-def dualquat_quat_casadi():
+def make_get_quaternion():
     # Function that get the quaternion of the dualquaternion, this elemens is the same as the real part
-    values = Q1.get_quat.get[:, 0]
-    f_quat = Function("f_quat", [dual_1], [values])
+    values = _dq_sym._get_quat_sym.get[:, 0]
+    f_quat = Function("f_quat", [_dual_sym], [values])
     return f_quat
 
 
 # Creating Functions
-get_real = dualquat_get_real_casadi()
-get_dual = dualquat_get_dual_casadi()
-get_trans = dualquat_trans_casadi()
-get_quat = dualquat_quat_casadi()
+_get_real_sym = make_get_real_part()
+_get_dual_sym = make_get_dual_part()
+_get_trans_sym = make_get_translation()
+_get_quat_sym = make_get_quaternion()
 
 
 # Creation of dualquaternion kinemtics
-def quatdot_simple(quat, omega):
+def dualquat_kinematics(quat, omega):
     # Functions that computes the differential kinematics based on dualquaternions
 
     # Split values real and dual
@@ -305,46 +315,46 @@ def quatdot_simple(quat, omega):
     return q_dot
 
 
-def dual_velocity_casadi(w_1d=w_1d, dual_1d=dual_1d):
+def make_body_velocity_from_twist(_w_des_sym=_w_des_sym, _dual_des_sym=_dual_des_sym):
     # Funtions that computes the twist based on dualquaternions
-    twist = ca.vertcat(0.0, w_1d[0:3, 0], 0.0, w_1d[3:6, 0])
-    w_aux = get_real(twist)
+    twist = ca.vertcat(0.0, _w_des_sym[0:3, 0], 0.0, _w_des_sym[3:6, 0])
+    w_aux = _get_real_sym(twist)
     w = w_aux[1:4, 0]
 
-    v_aux = get_dual(twist)
+    v_aux = _get_dual_sym(twist)
     v = v_aux[1:4, 0]
 
-    quat_aux = get_quat(dual_1d)
+    quat_aux = _get_quat_sym(_dual_des_sym)
 
     real = w
-    dual = f_rotation_inverse(quat_aux, v)
+    dual = _f_rotation_inverse_sym(quat_aux, v)
 
     velocity = ca.vertcat(real, dual)
-    f_velocity = Function("f_velocity", [w_1d, dual_1d], [velocity])
+    f_velocity = Function("f_velocity", [_w_des_sym, _dual_des_sym], [velocity])
     return f_velocity
 
 
-def velocities_from_twist_casadi(w_1d=w_1d, dual_1d=dual_1d):
+def make_inertial_velocity_from_twist(_w_des_sym=_w_des_sym, _dual_des_sym=_dual_des_sym):
     # Get Real and dual values
-    twist = ca.vertcat(0.0, w_1d[0:3, 0], 0.0, w_1d[3:6, 0])
+    twist = ca.vertcat(0.0, _w_des_sym[0:3, 0], 0.0, _w_des_sym[3:6, 0])
 
-    w_aux = get_real(twist)
+    w_aux = _get_real_sym(twist)
     w = w_aux[1:4, 0]
 
-    dual_aux = get_dual(twist)
+    dual_aux = _get_dual_sym(twist)
     dual = dual_aux[1:4, 0]
 
-    quat_aux = get_quat(dual_1d)
+    quat_aux = _get_quat_sym(_dual_des_sym)
 
     w_body = w
-    v_inertial = f_rotation(quat_aux, dual)
+    v_inertial = _f_rotation_sym(quat_aux, dual)
 
     velocity = ca.vertcat(w_body, v_inertial)
-    f_velocity = Function("f_velocity", [w_1d, dual_1d], [velocity])
+    f_velocity = Function("f_velocity", [_w_des_sym, _dual_des_sym], [velocity])
     return f_velocity
 
 
-def Ad(qd, v):
+def adjoint_map(qd, v):
     qd_conjugate = ca.vertcat(qd[0], -qd[1], -qd[2], -qd[3], qd[4], -qd[5], -qd[6], -qd[7])
     quat_d_data = qd_conjugate[0:4]
     dual_d_data = qd_conjugate[4:8]
@@ -395,7 +405,7 @@ def Ad(qd, v):
     return vector_b
 
 
-def error_lie(qd, q):
+def log_error_dualquat(qd, q):
     qd_conjugate = ca.vertcat(qd[0], -qd[1], -qd[2], -qd[3], qd[4], -qd[5], -qd[6], -qd[7])
     quat_d_data = qd_conjugate[0:4]
     dual_d_data = qd_conjugate[4:8]
@@ -456,7 +466,7 @@ def error_lie(qd, q):
     return q_e_ln
 
 
-def ln_dual(q_error):
+def log_map_dualquat(q_error):
     q_error_real = q_error[0:4, 0]
     q_error_real_c = ca.vertcat(
         q_error_real[0, 0], -q_error_real[1, 0], -q_error_real[2, 0], -q_error_real[3, 0]
@@ -494,12 +504,12 @@ def ln_dual(q_error):
     return q_e_ln
 
 
-def conjugate_dual(qd):
+def dualquat_conjugate(qd):
     qd_conjugate = ca.vertcat(qd[0], -qd[1], -qd[2], -qd[3], qd[4], -qd[5], -qd[6], -qd[7])
     return qd_conjugate
 
 
-def error_dual(qd, q):
+def dualquat_mul_conj(qd, q):
     qd_conjugate = ca.vertcat(qd[0], -qd[1], -qd[2], -qd[3], qd[4], -qd[5], -qd[6], -qd[7])
     quat_d_data = qd_conjugate[0:4]
     dual_d_data = qd_conjugate[4:8]
@@ -527,7 +537,7 @@ def error_dual(qd, q):
     return q_error
 
 
-def error_dual_aux_casadi():
+def make_dualquat_mul_conj():
     qd = ca.MX.sym("qd", 8, 1)
     q = ca.MX.sym("q", 8, 1)
     qd_conjugate = ca.vertcat(qd[0], -qd[1], -qd[2], -qd[3], qd[4], -qd[5], -qd[6], -qd[7])
@@ -558,7 +568,7 @@ def error_dual_aux_casadi():
     return f_error_dual
 
 
-def dual_aceleraction_casadi(dual, omega, u, L):
+def dualquat_acceleration(dual, omega, u, L):
     # Split Control Actions
     force = u[0, 0]
     torques = u[1:4, 0]
@@ -577,14 +587,14 @@ def dual_aceleraction_casadi(dual, omega, u, L):
     # Compute linear and angular velocity from twist velocity
     w = omega[0:3, 0]
     v = omega[3:6, 0]
-    p = get_trans(dual)
-    q = get_quat(dual)
+    p = _get_trans_sym(dual)
+    q = _get_quat_sym(dual)
     p = p[1:4, 0]
 
     # Compute unforced part
     # a = ca.cross(-J_1@w, J@w)
     F_r = -J_1 @ ca.cross(w, J @ w)
-    F_d = ca.cross(v, w) - g * (f_rotation_inverse(q, e3))
+    F_d = ca.cross(v, w) - g * (_f_rotation_inverse_sym(q, e3))
 
     # Compute forced part
     U_r = J_1 @ torques
@@ -597,7 +607,7 @@ def dual_aceleraction_casadi(dual, omega, u, L):
     return T
 
 
-def export_model(params):
+def export_acados_model(params):
     # Constraints variable
     constraint = ca.types.SimpleNamespace()
 
@@ -611,81 +621,81 @@ def export_model(params):
     model.z = []
 
     # States of the system
-    qw_1d = ca.MX.sym("qw_1d", 1, 1)
-    qx_1d = ca.MX.sym("qx_1d", 1, 1)
-    qy_1d = ca.MX.sym("qy_1d", 1, 1)
-    qz_1d = ca.MX.sym("qz_1d", 1, 1)
+    qw = ca.MX.sym("qw", 1, 1)
+    qx = ca.MX.sym("qx", 1, 1)
+    qy = ca.MX.sym("qy", 1, 1)
+    qz = ca.MX.sym("qz", 1, 1)
 
-    dw_1d = ca.MX.sym("dw_1d", 1, 1)
-    dx_1d = ca.MX.sym("dx_1d", 1, 1)
-    dy_1d = ca.MX.sym("dy_1d", 1, 1)
-    dz_1d = ca.MX.sym("dz_1d", 1, 1)
+    dw = ca.MX.sym("dw", 1, 1)
+    dx = ca.MX.sym("dx", 1, 1)
+    dy = ca.MX.sym("dy", 1, 1)
+    dz = ca.MX.sym("dz", 1, 1)
 
     # Defining the desired Velocity using symbolics
-    vx_1d = ca.MX.sym("vx_1d", 1, 1)
-    vy_1d = ca.MX.sym("vy_1d", 1, 1)
-    vz_1d = ca.MX.sym("vz_1d", 1, 1)
+    vx = ca.MX.sym("vx", 1, 1)
+    vy = ca.MX.sym("vy", 1, 1)
+    vz = ca.MX.sym("vz", 1, 1)
 
-    wx_1d = ca.MX.sym("wx_1d", 1, 1)
-    wy_1d = ca.MX.sym("wy_1d", 1, 1)
-    wz_1d = ca.MX.sym("wz_1d", 1, 1)
+    wx = ca.MX.sym("wx", 1, 1)
+    wy = ca.MX.sym("wy", 1, 1)
+    wz = ca.MX.sym("wz", 1, 1)
 
     X = ca.vertcat(
-        qw_1d,
-        qx_1d,
-        qy_1d,
-        qz_1d,
-        dw_1d,
-        dx_1d,
-        dy_1d,
-        dz_1d,
-        wx_1d,
-        wy_1d,
-        wz_1d,
-        vx_1d,
-        vy_1d,
-        vz_1d,
+        qw,
+        qx,
+        qy,
+        qz,
+        dw,
+        dx,
+        dy,
+        dz,
+        wx,
+        wy,
+        wz,
+        vx,
+        vy,
+        vz,
     )
     model.x = X
 
     # Split States of the system
-    twist_1 = X[8:14, 0]
-    dualquat_1 = X[0:8, 0]
+    twist = X[8:14, 0]
+    dualquat = X[0:8, 0]
 
     # Auxiliary variables implicit function
-    qw_1dot = ca.MX.sym("qw_1dot", 1, 1)
-    qx_1dot = ca.MX.sym("qx_1dot", 1, 1)
-    qy_1dot = ca.MX.sym("qy_1dot", 1, 1)
-    qz_1dot = ca.MX.sym("qz_1dot", 1, 1)
+    qw_dot = ca.MX.sym("qw_dot", 1, 1)
+    qx_dot = ca.MX.sym("qx_dot", 1, 1)
+    qy_dot = ca.MX.sym("qy_dot", 1, 1)
+    qz_dot = ca.MX.sym("qz_dot", 1, 1)
 
-    dw_1dot = ca.MX.sym("dw_1dot", 1, 1)
-    dx_1dot = ca.MX.sym("dx_1dot", 1, 1)
-    dy_1dot = ca.MX.sym("dy_1dot", 1, 1)
-    dz_1dot = ca.MX.sym("dz_1dot", 1, 1)
+    dw_dot = ca.MX.sym("dw_dot", 1, 1)
+    dx_dot = ca.MX.sym("dx_dot", 1, 1)
+    dy_dot = ca.MX.sym("dy_dot", 1, 1)
+    dz_dot = ca.MX.sym("dz_dot", 1, 1)
 
-    vx_1dot = ca.MX.sym("vx_1dot", 1, 1)
-    vy_1dot = ca.MX.sym("vy_1dot", 1, 1)
-    vz_1dot = ca.MX.sym("vz_1dot", 1, 1)
+    vx_dot = ca.MX.sym("vx_dot", 1, 1)
+    vy_dot = ca.MX.sym("vy_dot", 1, 1)
+    vz_dot = ca.MX.sym("vz_dot", 1, 1)
 
-    wx_1dot = ca.MX.sym("wx_1dot", 1, 1)
-    wy_1dot = ca.MX.sym("wy_1dot", 1, 1)
-    wz_1dot = ca.MX.sym("wz_1dot", 1, 1)
+    wx_dot = ca.MX.sym("wx_dot", 1, 1)
+    wy_dot = ca.MX.sym("wy_dot", 1, 1)
+    wz_dot = ca.MX.sym("wz_dot", 1, 1)
 
     X_dot = ca.vertcat(
-        qw_1dot,
-        qx_1dot,
-        qy_1dot,
-        qz_1dot,
-        dw_1dot,
-        dx_1dot,
-        dy_1dot,
-        dz_1dot,
-        wx_1dot,
-        wy_1dot,
-        wz_1dot,
-        vx_1dot,
-        vy_1dot,
-        vz_1dot,
+        qw_dot,
+        qx_dot,
+        qy_dot,
+        qz_dot,
+        dw_dot,
+        dx_dot,
+        dy_dot,
+        dz_dot,
+        wx_dot,
+        wy_dot,
+        wz_dot,
+        vx_dot,
+        vy_dot,
+        vz_dot,
     )
 
     # Control Actions
@@ -698,9 +708,9 @@ def export_model(params):
     model.u = u
 
     # System Dynamics
-    dualdot = quatdot_simple(dualquat_1, twist_1)
-    twistdot = dual_aceleraction_casadi(dualquat_1, twist_1, u, L)
-    f_expl = ca.vertcat(dualdot, twistdot)
+    dual_dot = dualquat_kinematics(dualquat, twist)
+    twist_dot = dualquat_acceleration(dualquat, twist, u, L)
+    f_expl = ca.vertcat(dual_dot, twist_dot)
     f_impl = X_dot - f_expl
 
     # External parameters
@@ -715,25 +725,25 @@ def export_model(params):
     model.xdot = X_dot
 
     # Constraint system
-    norm_q = ca.norm_2(get_quat(X[0:8]))
+    norm_q = ca.norm_2(_get_quat_sym(X[0:8]))
     constraint.expr = ca.vertcat(norm_q)
     constraint.min = 1.0
     constraint.max = 1.0
     return (
         model,
-        get_trans,
-        get_quat,
+        _get_trans_sym,
+        _get_quat_sym,
         constraint,
-        error_lie,
-        error_dual,
-        ln_dual,
-        Ad,
-        conjugate_dual,
-        rotation,
+        log_error_dualquat,
+        dualquat_mul_conj,
+        log_map_dualquat,
+        adjoint_map,
+        dualquat_conjugate,
+        rotate_vector_body_to_inertial,
     )
 
 
-def quadrotorModel(L: list) -> AcadosModel:
+def make_quadrotor_model(L: list) -> AcadosModel:
     # Dynamics of the quadrotor based on unit quaternions
     # INPUT
     # L                                                          - system parameters(mass, Inertias and gravity)
@@ -742,80 +752,80 @@ def quadrotorModel(L: list) -> AcadosModel:
     model_name = "quadrotor"
     constraint = ca.types.SimpleNamespace()
     # Defining Desired Frame
-    qw_1d = ca.MX.sym("qw_1d", 1, 1)
-    qx_1d = ca.MX.sym("qx_1d", 1, 1)
-    qy_1d = ca.MX.sym("qy_1d", 1, 1)
-    qz_1d = ca.MX.sym("qz_1d", 1, 1)
+    qw = ca.MX.sym("qw", 1, 1)
+    qx = ca.MX.sym("qx", 1, 1)
+    qy = ca.MX.sym("qy", 1, 1)
+    qz = ca.MX.sym("qz", 1, 1)
 
-    dw_1d = ca.MX.sym("dw_1d", 1, 1)
-    dx_1d = ca.MX.sym("dx_1d", 1, 1)
-    dy_1d = ca.MX.sym("dy_1d", 1, 1)
-    dz_1d = ca.MX.sym("dz_1d", 1, 1)
+    dw = ca.MX.sym("dw", 1, 1)
+    dx = ca.MX.sym("dx", 1, 1)
+    dy = ca.MX.sym("dy", 1, 1)
+    dz = ca.MX.sym("dz", 1, 1)
 
     # Defining the desired Velocity using symbolics
-    vx_1d = ca.MX.sym("vx_1d", 1, 1)
-    vy_1d = ca.MX.sym("vy_1d", 1, 1)
-    vz_1d = ca.MX.sym("vz_1d", 1, 1)
+    vx = ca.MX.sym("vx", 1, 1)
+    vy = ca.MX.sym("vy", 1, 1)
+    vz = ca.MX.sym("vz", 1, 1)
 
-    wx_1d = ca.MX.sym("wx_1d", 1, 1)
-    wy_1d = ca.MX.sym("wy_1d", 1, 1)
-    wz_1d = ca.MX.sym("wz_1d", 1, 1)
+    wx = ca.MX.sym("wx", 1, 1)
+    wy = ca.MX.sym("wy", 1, 1)
+    wz = ca.MX.sym("wz", 1, 1)
 
     X = ca.vertcat(
-        qw_1d,
-        qx_1d,
-        qy_1d,
-        qz_1d,
-        dw_1d,
-        dx_1d,
-        dy_1d,
-        dz_1d,
-        wx_1d,
-        wy_1d,
-        wz_1d,
-        vx_1d,
-        vy_1d,
-        vz_1d,
+        qw,
+        qx,
+        qy,
+        qz,
+        dw,
+        dx,
+        dy,
+        dz,
+        wx,
+        wy,
+        wz,
+        vx,
+        vy,
+        vz,
     )
 
     # Split States of the system
-    twist_1 = X[8:14, 0]
-    dualquat_1 = X[0:8, 0]
+    twist = X[8:14, 0]
+    dualquat = X[0:8, 0]
 
     # Auxiliary variables implicit function
-    qw_1dot = ca.MX.sym("qw_1dot", 1, 1)
-    qx_1dot = ca.MX.sym("qx_1dot", 1, 1)
-    qy_1dot = ca.MX.sym("qy_1dot", 1, 1)
-    qz_1dot = ca.MX.sym("qz_1dot", 1, 1)
+    qw_dot = ca.MX.sym("qw_dot", 1, 1)
+    qx_dot = ca.MX.sym("qx_dot", 1, 1)
+    qy_dot = ca.MX.sym("qy_dot", 1, 1)
+    qz_dot = ca.MX.sym("qz_dot", 1, 1)
 
-    dw_1dot = ca.MX.sym("dw_1dot", 1, 1)
-    dx_1dot = ca.MX.sym("dx_1dot", 1, 1)
-    dy_1dot = ca.MX.sym("dy_1dot", 1, 1)
-    dz_1dot = ca.MX.sym("dz_1dot", 1, 1)
+    dw_dot = ca.MX.sym("dw_dot", 1, 1)
+    dx_dot = ca.MX.sym("dx_dot", 1, 1)
+    dy_dot = ca.MX.sym("dy_dot", 1, 1)
+    dz_dot = ca.MX.sym("dz_dot", 1, 1)
 
-    vx_1dot = ca.MX.sym("vx_1dot", 1, 1)
-    vy_1dot = ca.MX.sym("vy_1dot", 1, 1)
-    vz_1dot = ca.MX.sym("vz_1dot", 1, 1)
+    vx_dot = ca.MX.sym("vx_dot", 1, 1)
+    vy_dot = ca.MX.sym("vy_dot", 1, 1)
+    vz_dot = ca.MX.sym("vz_dot", 1, 1)
 
-    wx_1dot = ca.MX.sym("wx_1dot", 1, 1)
-    wy_1dot = ca.MX.sym("wy_1dot", 1, 1)
-    wz_1dot = ca.MX.sym("wz_1dot", 1, 1)
+    wx_dot = ca.MX.sym("wx_dot", 1, 1)
+    wy_dot = ca.MX.sym("wy_dot", 1, 1)
+    wz_dot = ca.MX.sym("wz_dot", 1, 1)
 
     X_dot = ca.vertcat(
-        qw_1dot,
-        qx_1dot,
-        qy_1dot,
-        qz_1dot,
-        dw_1dot,
-        dx_1dot,
-        dy_1dot,
-        dz_1dot,
-        wx_1dot,
-        wy_1dot,
-        wz_1dot,
-        vx_1dot,
-        vy_1dot,
-        vz_1dot,
+        qw_dot,
+        qx_dot,
+        qy_dot,
+        qz_dot,
+        dw_dot,
+        dx_dot,
+        dy_dot,
+        dz_dot,
+        wx_dot,
+        wy_dot,
+        wz_dot,
+        vx_dot,
+        vy_dot,
+        vz_dot,
     )
 
     # Control Actions
@@ -826,10 +836,10 @@ def quadrotorModel(L: list) -> AcadosModel:
 
     u = ca.vertcat(F_ref, tau_1_ref, tau_2_ref, tau_3_ref)
 
-    dualdot = quatdot_simple(dualquat_1, twist_1)
-    twistdot = dual_aceleraction_casadi(dualquat_1, twist_1, u, L)
+    dual_dot = dualquat_kinematics(dualquat, twist)
+    twist_dot = dualquat_acceleration(dualquat, twist, u, L)
 
-    norm_q = ca.norm_2(get_quat(X[0:8]))
+    norm_q = ca.norm_2(_get_quat_sym(X[0:8]))
     dot_real_dual = 2 * ca.dot(X[0:4], X[4:8])
     constraint.norm = Function("norm", [X], [norm_q])
     constraint.expr = ca.vertcat(norm_q)
@@ -838,7 +848,7 @@ def quadrotorModel(L: list) -> AcadosModel:
     constraint.min2 = 0.0
     constraint.max2 = 0.0
     # Explicit and implicit functions
-    f_expl = ca.vertcat(dualdot, twistdot)
+    f_expl = ca.vertcat(dual_dot, twist_dot)
     f_impl = X_dot - f_expl
     p = ca.MX.sym("p", 18, 1)
 
@@ -857,25 +867,25 @@ def quadrotorModel(L: list) -> AcadosModel:
     model.name = model_name
     return (
         model,
-        get_trans,
-        get_quat,
+        _get_trans_sym,
+        _get_quat_sym,
         constraint,
-        error_lie,
-        error_dual,
-        ln_dual,
-        Ad,
-        conjugate_dual,
-        rotation,
+        log_error_dualquat,
+        dualquat_mul_conj,
+        log_map_dualquat,
+        adjoint_map,
+        dualquat_conjugate,
+        rotate_vector_body_to_inertial,
     )
 
 
-def noise(x, noise):
+def apply_noise(x, noise):
     # Get position and quaternion
     dual = x[0:8]
     twist = x[8:14]
-    trans = get_trans(dual)
+    trans = _get_trans_sym(dual)
     trans_np = np.array(trans[1:4]).reshape((3,))
-    quat_data = get_quat(dual)
+    quat_data = _get_quat_sym(dual)
 
     # Split noise
     noise_position = noise[0:3]
@@ -941,7 +951,7 @@ def noise(x, noise):
     return x_noise
 
 
-def cost_quaternion_casadi():
+def make_quat_error_cost():
     qd = ca.MX.sym("qd", 4, 1)
     q = ca.MX.sym("q", 4, 1)
     qd_conjugate = ca.vertcat(qd[0, 0], -qd[1, 0], -qd[2, 0], -qd[3, 0])
@@ -977,7 +987,7 @@ def cost_quaternion_casadi():
     return f_cost
 
 
-def cost_translation_casadi():
+def make_translation_error_cost():
     td = ca.MX.sym("td", 4, 1)
     t = ca.MX.sym("t", 4, 1)
 

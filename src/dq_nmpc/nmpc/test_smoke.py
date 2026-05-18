@@ -11,11 +11,11 @@ import sys
 def _test_import():
     try:
         from dq_nmpc.nmpc.controller import solver
-        from dq_nmpc.nmpc.dynamics import export_model
+        from dq_nmpc.nmpc.dynamics import export_acados_model
     except ImportError as e:
         return None, str(e)
 
-    return (solver, export_model), None
+    return (solver, export_acados_model), None
 
 
 def test_controller_import():
@@ -23,15 +23,15 @@ def test_controller_import():
     if result is None:
         print(f"SKIP (acados not available: {err})")
         return False
-    solver, export_model = result
+    solver, export_acados_model = result
     assert solver is not None
-    assert export_model is not None
+    assert export_acados_model is not None
     return True
 
 
 def test_dynamics_functions_import():
     try:
-        from dq_nmpc.nmpc.dynamics import dual_velocity_casadi  # noqa: F401
+        from dq_nmpc.nmpc.dynamics import make_body_velocity_from_twist  # noqa: F401
     except ImportError:
         return False
     return True

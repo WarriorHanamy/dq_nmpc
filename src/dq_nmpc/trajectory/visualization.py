@@ -54,17 +54,19 @@ def visualize_trajectory(
     half_extents: tuple[float, float, float],
     cost: float,
     output_path: Path,
+    optimized_positions: np.ndarray | None = None,
 ) -> Path:
     """Generate interactive plotly HTML visualization of a trajectory.
 
-    @param[in] csv_path      Path to trajectory CSV
-    @param[in] shape         Trajectory shape name
-    @param[in] inner_points  (3, N) waypoints
-    @param[in] sfc_centers   List of (3,) SFC box centers
-    @param[in] half_extents  SFC box half-extents [m]
-    @param[in] cost          Optimization cost
-    @param[in] output_path   Output HTML path
-    @return                  Path to the written HTML file
+    @param[in] csv_path             Path to trajectory CSV
+    @param[in] shape                Trajectory shape name
+    @param[in] inner_points         (3, N) seed waypoints
+    @param[in] sfc_centers          List of (3,) SFC box centers
+    @param[in] half_extents         SFC box half-extents [m]
+    @param[in] cost                 Optimization cost
+    @param[in] output_path          Output HTML path
+    @param[in] optimized_positions  (3, M) GCOPTER-optimized junction positions
+    @return                         Path to the written HTML file
     """
     data = np.genfromtxt(csv_path, delimiter=",", skip_header=1)
     _i = csv_column_index
@@ -114,7 +116,7 @@ def visualize_trajectory(
         col=1,
     )
 
-    # Waypoints
+    # Seed waypoints
     fig.add_trace(
         go.Scatter3d(
             x=inner_points[0],
@@ -122,11 +124,26 @@ def visualize_trajectory(
             z=inner_points[2],
             mode="markers",
             marker=dict(color="orange", size=4, symbol="diamond"),
-            name="waypoints",
+            name="seed waypoints",
         ),
         row=1,
         col=1,
     )
+
+    # Optimized waypoints (GCOPTER junction positions)
+    if optimized_positions is not None:
+        fig.add_trace(
+            go.Scatter3d(
+                x=optimized_positions[0],
+                y=optimized_positions[1],
+                z=optimized_positions[2],
+                mode="markers",
+                marker=dict(color="magenta", size=6, symbol="circle-open"),
+                name="optimized waypoints",
+            ),
+            row=1,
+            col=1,
+        )
 
     # SFC box wireframes
     for i, center in enumerate(sfc_centers):

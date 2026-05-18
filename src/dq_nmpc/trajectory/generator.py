@@ -12,13 +12,15 @@ import minco
 import numpy as np
 from minco.flatness_cache import CachedFlatness
 
-from dq_nmpc.schema import ARTIFACTS_DIR, TRAJECTORY_CSV_COLUMNS
+from dq_nmpc.schema import ARTIFACTS_DIR, TRAJECTORY_CSV_COLUMNS, TrajectoryConfig
 from dq_nmpc.trajectory.visualization import visualize_trajectory
 from dq_nmpc.utils.waypoints import make_sfc_box, waypoints_for_shape
 
 _GCONFIG_ROOT = (
     Path(__file__).resolve().parents[3] / "src" / "dq_nmpc" / "config" / "mujoco" / "default"
 )
+
+_NOMINAL_SPEED = 2.0  # [m/s] initial piece duration seed
 
 
 @contextmanager
@@ -38,10 +40,12 @@ def _sample_trajectory(
     ts: float,
     horizon_steps: int,
 ) -> list[tuple[float, ...]]:
-    total = traj5.total_duration
-    num_samples = min(int(total / ts) + 1, horizon_steps * 10)
+    duration = traj5.total_duration
+    num_samples = int(duration / ts) + 1
+    if num_samples < 2:
+        num_samples = 2
     rows = []
-    dt = total / max(num_samples - 1, 1)
+    dt = duration / max(num_samples - 1, 1)
 
     for i in range(num_samples):
         t = i * dt
@@ -84,29 +88,29 @@ def _sample_trajectory(
 
 
 def generate_trajectory(
-    shape: str = "hover",
+    config: TrajectoryConfig,
     output: str | Path | None = None,
-    ts: float = 0.03,
-    total_time: float = 5.0,
-    mass: float = 1.0,
-    gravity: float = 9.80665,
-    num_waypoints: int = 10,
 ) -> Path:
     if output is None:
-        output = Path(f"{ARTIFACTS_DIR}/{shape}/trajectory.csv")
+        output = Path(f"{ARTIFACTS_DIR}/{config.shape}/trajectory.csv")
     else:
         output = Path(output)
 
-    flatness = CachedFlatness(mass=mass, gravity=gravity)
+    flatness = CachedFlatness(mass=config.mass, gravity=config.gravity)
 
-    inner_points = waypoints_for_shape(shape, num_waypoints)
+    inner_points = waypoints_for_shape(config.shape, config.num_waypoints)
     num_pieces = inner_points.shape[1] + 1
 
     head_pva = np.column_stack([inner_points[:, 0], np.zeros(3), np.zeros(3)])
     tail_pva = np.column_stack([inner_points[:, -1], np.zeros(3), np.zeros(3)])
 
-    piece_duration = total_time / num_pieces
-    initial_time = np.full(num_pieces, piece_duration)
+    # Option B: initial piece duration from arc length / nominal speed
+    pts = np.column_stack([inner_points[:, 0], inner_points])
+    path_len = 0.0
+    for i in range(pts.shape[1] - 1):
+        path_len += float(np.linalg.norm(pts[:, i + 1] - pts[:, i]))
+    init_dt = max(path_len / num_pieces / _NOMINAL_SPEED, 0.01)
+    initial_time = np.full(num_pieces, init_dt)
 
     sfc_centers = []
     sfc_polys = []
@@ -137,11 +141,11 @@ def generate_trajectory(
 
     cost, traj5 = opt.optimize(rel_cost_tol=1e-3)
 
-    horizon_steps = max(int(total_time / ts), 1)
-    rows = _sample_trajectory(traj5, flatness, ts, horizon_steps)
+    rows = _sample_trajectory(traj5, flatness, config.ts, 100)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     with open(output, "w", newline="") as f:
+        f.write(f"# ts={config.ts}\n")
         writer = csv.writer(f)
         writer.writerow(list(TRAJECTORY_CSV_COLUMNS))
         writer.writerows(rows)
@@ -151,7 +155,7 @@ def generate_trajectory(
     viz_path = output.with_suffix(".html")
     visualize_trajectory(
         csv_path=output,
-        shape=shape,
+        shape=config.shape,
         inner_points=inner_points,
         sfc_centers=sfc_centers,
         half_extents=half_extents,
