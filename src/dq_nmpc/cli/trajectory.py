@@ -12,7 +12,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="Generate feasible quadrotor trajectory")
     parser.add_argument("--shape", choices=SHAPES, default="hover", help="Trajectory shape")
-    parser.add_argument("--output", type=str, default="trajectory.csv", help="Output CSV path")
+    parser.add_argument("--output", type=str, default=None, help="Output CSV path")
     parser.add_argument("--ts", type=float, default=0.03, help="Sample time [s]")
     parser.add_argument(
         "--total-time", type=float, default=5.0, help="Total trajectory duration [s]"

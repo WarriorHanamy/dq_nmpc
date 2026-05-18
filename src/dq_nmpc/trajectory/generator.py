@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import csv
+import os
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +12,21 @@ import minco
 import numpy as np
 from minco.flatness_cache import CachedFlatness
 
+from dq_nmpc.trajectory.visualization import visualize_trajectory
 from dq_nmpc.utils.waypoints import make_sfc_box, waypoints_for_shape
+
+_MINCO_ROOT = Path(__file__).resolve().parents[3] / "deps" / "minco-python"
+
+
+@contextmanager
+def _in_dir(path: Path):
+    """Temporarily change working directory."""
+    old = os.getcwd()
+    try:
+        os.chdir(str(path))
+        yield
+    finally:
+        os.chdir(old)
 
 
 def _sample_trajectory(
@@ -61,14 +77,17 @@ def _sample_trajectory(
 
 def generate_trajectory(
     shape: str = "hover",
-    output: str | Path = "trajectory.csv",
+    output: str | Path | None = None,
     ts: float = 0.03,
     total_time: float = 5.0,
     mass: float = 1.0,
     gravity: float = 9.80665,
     num_waypoints: int = 10,
 ) -> Path:
-    output = Path(output)
+    if output is None:
+        output = Path(f"out/{shape}/trajectory.csv")
+    else:
+        output = Path(output)
 
     thrust_hover = mass * gravity
     flatness = CachedFlatness(mass=mass, gravity=gravity)
@@ -82,6 +101,7 @@ def generate_trajectory(
     piece_duration = total_time / num_pieces
     initial_time = np.full(num_pieces, piece_duration)
 
+    sfc_centers = []
     sfc_polys = []
     half_extents = (0.5, 0.5, 0.5)
     for k in range(num_pieces):
@@ -91,10 +111,11 @@ def generate_trajectory(
             center = inner_points[:, -1]
         else:
             center = inner_points[:, k]
+        sfc_centers.append(center.copy())
         sfc_polys.append(make_sfc_box(center, half_extents))
 
-    opt = minco.gcopter.GCOPTERPolytopeSFC()
-    opt.configure_from_file("")
+    with _in_dir(_MINCO_ROOT):
+        opt = minco.gcopter.GCOPTERPolytopeSFC()
     ok = opt.setup_basic_trajectory(
         head_pva,
         tail_pva,
@@ -137,4 +158,16 @@ def generate_trajectory(
         writer.writerows(rows)
 
     print(f"Trajectory saved: {output}  ({len(rows)} points, cost={cost:.4f})")
+
+    viz_path = output.with_suffix(".html")
+    visualize_trajectory(
+        csv_path=output,
+        shape=shape,
+        inner_points=inner_points,
+        sfc_centers=sfc_centers,
+        half_extents=half_extents,
+        cost=cost,
+        output_path=viz_path,
+    )
+
     return output

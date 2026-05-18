@@ -31,4 +31,9 @@ install/
 .DS_Store
 Thumbs.db
 
+# Generated artifacts
+out/
+trajectory.csv
+trajectory.html
+
 .opencode/

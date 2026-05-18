@@ -10,7 +10,7 @@ from dq_nmpc.trajectory.generator import generate_trajectory as _generate_trajec
 
 def generate_trajectory(
     shape: str = "hover",
-    output: str | Path = "trajectory.csv",
+    output: str | Path | None = None,
     ts: float = 0.03,
     total_time: float = 5.0,
     mass: float = 1.0,
@@ -20,7 +20,7 @@ def generate_trajectory(
     """Generate a feasible quadrotor trajectory and write to CSV.
 
     @param[in] shape         One of hover, line, circle, fig8
-    @param[in] output        Output CSV path
+    @param[in] output        Output CSV path (defaults to out/{shape}/trajectory.csv)
     @param[in] ts            Sample time [s]
     @param[in] total_time    Total trajectory duration [s]
     @param[in] mass          Vehicle mass [kg]

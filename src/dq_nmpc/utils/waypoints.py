@@ -18,12 +18,12 @@ def make_sfc_box(
     hx, hy, hz = half_extents
     A = np.array(
         [
-            [1, 0, 0, -(cx - hx)],
-            [-1, 0, 0, (cx + hx)],
-            [0, 1, 0, -(cy - hy)],
-            [0, -1, 0, (cy + hy)],
-            [0, 0, 1, -(cz - hz)],
-            [0, 0, -1, (cz + hz)],
+            [1, 0, 0, -(cx + hx)],
+            [-1, 0, 0, cx - hx],
+            [0, 1, 0, -(cy + hy)],
+            [0, -1, 0, cy - hy],
+            [0, 0, 1, -(cz + hz)],
+            [0, 0, -1, cz - hz],
         ],
         dtype=np.float64,
     )

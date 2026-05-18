@@ -1,0 +1,245 @@
+"""Plotly-based quadrotor trajectory visualization."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+
+def _box_wireframe(center: np.ndarray, half_extents: tuple[float, float, float]) -> np.ndarray:
+    """Return (3, N) array of box edge vertices with NaN separators."""
+    cx, cy, cz = center
+    hx, hy, hz = half_extents
+    corners = np.array(
+        [
+            [cx - hx, cy - hy, cz - hz],  # 0: ---
+            [cx + hx, cy - hy, cz - hz],  # 1: +--
+            [cx - hx, cy + hy, cz - hz],  # 2: -+-
+            [cx + hx, cy + hy, cz - hz],  # 3: ++-
+            [cx - hx, cy - hy, cz + hz],  # 4: --+
+            [cx + hx, cy - hy, cz + hz],  # 5: +-+
+            [cx - hx, cy + hy, cz + hz],  # 6: -++
+            [cx + hx, cy + hy, cz + hz],  # 7: +++
+        ]
+    )
+    edges = [
+        (0, 1),
+        (0, 2),
+        (0, 4),
+        (1, 3),
+        (1, 5),
+        (2, 3),
+        (2, 6),
+        (3, 7),
+        (4, 5),
+        (4, 6),
+        (5, 7),
+        (6, 7),
+    ]
+    nan = np.array([np.nan, np.nan, np.nan])
+    segs = [np.stack([corners[i], corners[j], nan]) for i, j in edges]
+    return np.vstack(segs).T
+
+
+def visualize_trajectory(
+    csv_path: Path,
+    shape: str,
+    inner_points: np.ndarray,
+    sfc_centers: list[np.ndarray],
+    half_extents: tuple[float, float, float],
+    cost: float,
+    output_path: Path,
+) -> Path:
+    """Generate interactive plotly HTML visualization of a trajectory.
+
+    @param[in] csv_path      Path to trajectory CSV
+    @param[in] shape         Trajectory shape name
+    @param[in] inner_points  (3, N) waypoints
+    @param[in] sfc_centers   List of (3,) SFC box centers
+    @param[in] half_extents  SFC box half-extents [m]
+    @param[in] cost          Optimization cost
+    @param[in] output_path   Output HTML path
+    @return                  Path to the written HTML file
+    """
+    data = np.genfromtxt(csv_path, delimiter=",", skip_header=1)
+    t = data[:, 0]
+    pos = data[:, 1:4]
+    vel = data[:, 4:7]
+    w = data[:, 11:14]
+    thrust = data[:, 14]
+
+    v_norm = np.linalg.norm(vel, axis=1)
+
+    fig = make_subplots(
+        rows=3,
+        cols=2,
+        column_widths=[0.55, 0.45],
+        specs=[
+            [{"type": "scene", "rowspan": 3}, {"type": "xy"}],
+            [None, {"type": "xy"}],
+            [None, {"type": "xy"}],
+        ],
+        subplot_titles=("", "Position [m]", "Velocity & Body Rates", "Thrust [N]"),
+        vertical_spacing=0.08,
+    )
+
+    # --- Left panel: 3D trajectory ---
+    fig.add_trace(
+        go.Scatter3d(
+            x=pos[:, 0],
+            y=pos[:, 1],
+            z=pos[:, 2],
+            mode="lines",
+            line=dict(color="royalblue", width=3),
+            name="trajectory",
+        ),
+        row=1,
+        col=1,
+    )
+
+    # Waypoints
+    fig.add_trace(
+        go.Scatter3d(
+            x=inner_points[0],
+            y=inner_points[1],
+            z=inner_points[2],
+            mode="markers",
+            marker=dict(color="orange", size=4, symbol="diamond"),
+            name="waypoints",
+        ),
+        row=1,
+        col=1,
+    )
+
+    # SFC box wireframes
+    for i, center in enumerate(sfc_centers):
+        wire = _box_wireframe(center, half_extents)
+        fig.add_trace(
+            go.Scatter3d(
+                x=wire[0],
+                y=wire[1],
+                z=wire[2],
+                mode="lines",
+                line=dict(color="dimgray", width=2),
+                opacity=0.35,
+                showlegend=(i == 0),
+                name="SFC",
+            ),
+            row=1,
+            col=1,
+        )
+
+    # Start / end markers
+    fig.add_trace(
+        go.Scatter3d(
+            x=[pos[0, 0]],
+            y=[pos[0, 1]],
+            z=[pos[0, 2]],
+            mode="markers",
+            marker=dict(color="green", size=8, symbol="circle"),
+            name="start",
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter3d(
+            x=[pos[-1, 0]],
+            y=[pos[-1, 1]],
+            z=[pos[-1, 2]],
+            mode="markers",
+            marker=dict(color="red", size=8, symbol="circle"),
+            name="end",
+        ),
+        row=1,
+        col=1,
+    )
+
+    # --- Right top: position ---
+    fig.add_trace(
+        go.Scatter(x=t, y=pos[:, 0], name="x", line=dict(width=1.5), legendgroup="pos"),
+        row=1,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(x=t, y=pos[:, 1], name="y", line=dict(width=1.5), legendgroup="pos"),
+        row=1,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(x=t, y=pos[:, 2], name="z", line=dict(width=1.5), legendgroup="pos"),
+        row=1,
+        col=2,
+    )
+
+    # --- Right middle: velocity + body rates ---
+    fig.add_trace(
+        go.Scatter(x=t, y=v_norm, name="|v| [m/s]", line=dict(width=1.5)),
+        row=2,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=t,
+            y=w[:, 0],
+            name="wx [rad/s]",
+            line=dict(width=1, dash="dot"),
+        ),
+        row=2,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=t,
+            y=w[:, 1],
+            name="wy [rad/s]",
+            line=dict(width=1, dash="dot"),
+        ),
+        row=2,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=t,
+            y=w[:, 2],
+            name="wz [rad/s]",
+            line=dict(width=1, dash="dot"),
+        ),
+        row=2,
+        col=2,
+    )
+
+    # --- Right bottom: thrust ---
+    fig.add_trace(
+        go.Scatter(x=t, y=thrust, name="thrust [N]", line=dict(width=1.5)),
+        row=3,
+        col=2,
+    )
+
+    # Layout
+    fig.update_layout(
+        title=dict(
+            text=f"GCOPTER Trajectory — {shape}  (cost={cost:.2f})",
+            font=dict(size=16),
+        ),
+        scene=dict(
+            xaxis_title="X [m]",
+            yaxis_title="Y [m]",
+            zaxis_title="Z [m]",
+            aspectmode="data",
+        ),
+        margin=dict(l=20, r=20, t=60, b=20),
+        legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=1.02),
+    )
+
+    fig.update_xaxes(title_text="Time [s]", row=3, col=2)
+    fig.update_yaxes(title_text="[m/s] / [rad/s]", row=2, col=2)
+    fig.update_yaxes(title_text="[N]", row=3, col=2)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.write_html(str(output_path))
+    print(f"Visualization saved: {output_path}")
+    return output_path
