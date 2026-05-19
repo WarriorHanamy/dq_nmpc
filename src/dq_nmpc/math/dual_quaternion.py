@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import dataclasses
-from typing import List
-import casadi as cs
-from dq_nmpc.type import Scalar, Vector
-import numpy as np
-from numbers import Number
-from dq_nmpc.math.quaternion import Quaternion
 from dataclasses import field
+from numbers import Number
+
+import casadi as cs
+import numpy as np
+
+from dq_nmpc.math.quaternion import Quaternion
+from dq_nmpc.type import Scalar, Vector
 
 
 @dataclasses.dataclass
@@ -18,7 +21,7 @@ class DualQuaternion:
         init=False, default=None
     )  # Dual part of the DualQuaternion, not initialized by default.
 
-    def __init__(self, q_real=None, q_dual=None):
+    def __init__(self, q_real: Quaternion | None = None, q_dual: Quaternion | None = None) -> None:
         """
         Initializes a DualQuaternion object with provided real (q_real) and dual (q_dual) quaternions.
 
@@ -60,7 +63,7 @@ class DualQuaternion:
         """
         return f"DualQuaternion(Real: {self.Qr}, Dual: {self.Qd})"
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> object:
         """
         Overrides the default attribute access method for the DualQuaternion class.
         This method attempts to delegate attribute access first to the real part (Qr) and then to the dual part (Qd) of the DualQuaternion.
@@ -84,7 +87,7 @@ class DualQuaternion:
             raise AttributeError(f"'DualQuaternion' object has no attribute '{name}'")
 
     @staticmethod
-    def from_pose(quat: Vector, trans: Vector) -> "DualQuaternion":
+    def from_pose(quat: Vector, trans: Vector) -> DualQuaternion:
         """
         Creates a DualQuaternion from a given pose of a rigid body, defined by a quaternion for orientation and a vector for translation.
 
@@ -108,7 +111,7 @@ class DualQuaternion:
         q_d = (1 / 2) * (t * q)
         return DualQuaternion(q_real=q_r, q_dual=q_d)
 
-    def __mul__(self, q2: "DualQuaternion") -> "DualQuaternion":
+    def __mul__(self, q2: DualQuaternion) -> DualQuaternion:
         """
         Defines the left multiplication operation for DualQuaternions with another DualQuaternion or a scalar value.
 
@@ -158,7 +161,7 @@ class DualQuaternion:
                 "Left Multiplication with DualQuaternion is only defined for DualQuaternions and scalars of the same type."
             )
 
-    def __rmul__(self, q2) -> "DualQuaternion":
+    def __rmul__(self, q2: DualQuaternion | Number) -> DualQuaternion:
         """
         Defines the right multiplication operation for DualQuaternions with a scalar or compatible numeric type.
 
@@ -210,7 +213,7 @@ class DualQuaternion:
             )
 
     @staticmethod
-    def product(p: "DualQuaternion", q: "DualQuaternion") -> "DualQuaternion":
+    def product(p: DualQuaternion, q: DualQuaternion) -> DualQuaternion:
         """
         Computes the Hamilton product of two DualQuaternions.
 
@@ -290,7 +293,7 @@ class DualQuaternion:
                 "Internal problem with the definition of the DualQuaternion; it should be of the same type: np.array, cs.MX, or cs.SX."
             )
 
-    def conjugate(self) -> "DualQuaternion":
+    def conjugate(self) -> DualQuaternion:
         """
         Computes the conjugate of the DualQuaternion.
 
@@ -309,7 +312,7 @@ class DualQuaternion:
         return DualQuaternion(q_real=qr_conjugate, q_dual=qd_conjugate)
 
     @property
-    def norm_dual_control(self):
+    def norm_dual_control(self) -> tuple[Scalar, Scalar]:
         """
         Calculates the norms of the real and dual parts of the DualQuaternion.
 
@@ -352,7 +355,7 @@ class DualQuaternion:
             raise TypeError("The elements of both Dualquaternions should be of the same type.")
 
     @property
-    def norm_dual(self):
+    def norm_dual(self) -> tuple[Scalar, Scalar]:
         """
         Calculates the norms of the real and dual parts of the DualQuaternion.
 
@@ -404,7 +407,7 @@ class DualQuaternion:
             raise TypeError("The elements of both Dualquaternions should be of the same type.")
 
     @property
-    def get_trans(self) -> "Quaternion":
+    def get_trans(self) -> Quaternion:
         """
         Extracts the translation component from the DualQuaternion.
 
@@ -432,7 +435,7 @@ class DualQuaternion:
         return Quaternion(q=t_data)
 
     @property
-    def get_quat(self) -> "Quaternion":
+    def get_quat(self) -> Quaternion:
         """
          This property accesses the real part of the DualQuaternion, 'qr', which encodes the rotation
 
@@ -446,7 +449,7 @@ class DualQuaternion:
         return Quaternion(q=qr_data)
 
     @property
-    def get_real(self) -> "Quaternion":
+    def get_real(self) -> Quaternion:
         """
         Retrieves the real part of the DualQuaternion as a Quaternion object.
 
@@ -460,7 +463,7 @@ class DualQuaternion:
         return Quaternion(q=qr_data)
 
     @property
-    def get_dual(self) -> "Quaternion":
+    def get_dual(self) -> Quaternion:
         """
         Retrieves the dual part of the DualQuaternion as a Quaternion object.
 
@@ -473,7 +476,7 @@ class DualQuaternion:
         qd_data = qd.get
         return Quaternion(q=qd_data)
 
-    def __add__(self, q2: "DualQuaternion") -> "DualQuaternion":
+    def __add__(self, q2: DualQuaternion) -> DualQuaternion:
         if isinstance(q2, DualQuaternion):
             return DualQuaternion.add(self, q2)
         elif isinstance(q2, Number):
@@ -497,7 +500,7 @@ class DualQuaternion:
         else:
             raise TypeError("Right addition is only defined for DualQuaternions and scalars.")
 
-    def __radd__(self, q2: "DualQuaternion") -> "DualQuaternion":
+    def __radd__(self, q2: DualQuaternion) -> DualQuaternion:
         if isinstance(q2, DualQuaternion):
             return DualQuaternion.add(q2, self)
         elif isinstance(q2, Number):
@@ -522,7 +525,7 @@ class DualQuaternion:
             raise TypeError("Left addtion is only defined for DualQuaternions and scalars")
 
     @staticmethod
-    def add(p: "DualQuaternion", q: "DualQuaternion") -> "DualQuaternion":
+    def add(p: DualQuaternion, q: DualQuaternion) -> DualQuaternion:
         # Get elements of the dual quaternions
         q1r = p.Qr
         q1d = p.Qd
@@ -547,7 +550,7 @@ class DualQuaternion:
             raise TypeError("The elements of both Dualquaternions should be of the same type.")
         return DualQuaternion(q_real=real, q_dual=dual)
 
-    def __sub__(self, q2: "DualQuaternion") -> "DualQuaternion":
+    def __sub__(self, q2: DualQuaternion) -> DualQuaternion:
         if isinstance(q2, DualQuaternion):
             return DualQuaternion.sub(self, q2)
         elif isinstance(q2, Number):
@@ -571,7 +574,7 @@ class DualQuaternion:
         else:
             raise TypeError("Right substracion only defined for DualQuaternions and scalars")
 
-    def __rsub__(self, q2: "DualQuaternion") -> "DualQuaternion":
+    def __rsub__(self, q2: DualQuaternion) -> DualQuaternion:
         if isinstance(q2, Quaternion):
             return DualQuaternion.sub(q2, self)
         elif isinstance(q2, Number):
@@ -596,7 +599,7 @@ class DualQuaternion:
             raise TypeError("Left Substraction is only defined for DualQuaternions and scalars")
 
     @staticmethod
-    def sub(p: "DualQuaternion", q: "DualQuaternion") -> "DualQuaternion":
+    def sub(p: DualQuaternion, q: DualQuaternion) -> DualQuaternion:
         # Get elements of the dual quaternions
         q1r = p.Qr
         q1d = p.Qd
@@ -621,7 +624,7 @@ class DualQuaternion:
             raise TypeError("The elements of both Dualquaternions should be of the same type.")
         return DualQuaternion(q_real=real, q_dual=dual)
 
-    def set(self, q_real=None, q_dual=None):
+    def set(self, q_real: Quaternion | None = None, q_dual: Quaternion | None = None) -> None:
         # Set new elements of the Dualquaternion elements
         if q_real is not None and q_dual is not None:
             if not all(isinstance(i, Quaternion) for i in [q_real, q_dual]):
@@ -641,7 +644,7 @@ class DualQuaternion:
             # Handle case where q_primal or q_dual are not provided
             raise ValueError("Both primal and dual quaternions must be provided")
 
-    def ln_control(self):
+    def ln_control(self) -> DualQuaternion:
         # Log mapping of the dualQuaternion
         q1r = self.Qr
         q1d = self.Qd
@@ -708,7 +711,7 @@ class DualQuaternion:
         Dual_ln = DualQuaternion(q_real=Quaternion(q=result_ntheta), q_dual=Quaternion(q=result_ps))
         return Dual_ln
 
-    def ln_dual(self):
+    def ln_dual(self) -> DualQuaternion:
         # Log mapping of the dualQuaternion
         q1r = self.Qr
         q1d = self.Qd
@@ -775,7 +778,7 @@ class DualQuaternion:
         Dual_ln = DualQuaternion.from_pose(quat=result_ntheta, trans=result_ps)
         return Dual_ln
 
-    def axis_angle_dual(self) -> "DualQuaternion":
+    def axis_angle_dual(self) -> DualQuaternion:
         # Log mapping of the dualQuaternion
         q1r = self.Qr
         q1d = self.Qd
@@ -826,7 +829,7 @@ class DualQuaternion:
         return Dual_ln
 
     @staticmethod
-    def vector_dot(p: "DualQuaternion", q: "DualQuaternion") -> "DualQuaternion":
+    def vector_dot(p: DualQuaternion, q: DualQuaternion) -> DualQuaternion:
         # Get elements of the dual quaternions
         q1r = p.Qr
         q1d = p.Qd
@@ -856,7 +859,7 @@ class DualQuaternion:
 
         return DualQuaternion(q_real=real_quat, q_dual=dual_quat)
 
-    def vector_dot_product(self, q2):
+    def vector_dot_product(self, q2: DualQuaternion) -> DualQuaternion:
         if isinstance(q2, DualQuaternion):
             product = DualQuaternion.vector_dot(self, q2)
             return product
@@ -864,7 +867,7 @@ class DualQuaternion:
             raise TypeError("Vector Dot Product only defined for DualQuaternions")
 
     @property
-    def H_plus_dual(self):
+    def H_plus_dual(self) -> Vector:
         # Log mapping of the dualQuaternion
         q1r = self.Qr
         q1d = self.Qd
@@ -892,7 +895,7 @@ class DualQuaternion:
         return Hplus
 
     @property
-    def H_minus_dual(self):
+    def H_minus_dual(self) -> Vector:
         # Log mapping of the dualQuaternion
         q1r = self.Qr
         q1d = self.Qd

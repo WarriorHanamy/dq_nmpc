@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import List
-import casadi as cs
-from dq_nmpc.type import Scalar, Vector
-import numpy as np
 from numbers import Number
+
+import casadi as cs
+import numpy as np
+
+from dq_nmpc.type import Scalar, Vector
 
 
 @dataclasses.dataclass
@@ -13,7 +14,7 @@ class Quaternion:
     # Properties of the class
     q: Vector  # Property to store the quaternion vector
 
-    def __init__(self, q=None):
+    def __init__(self, q: Vector | None = None) -> None:
         """
         Constructor method for the Quaternion class.
 
@@ -40,7 +41,7 @@ class Quaternion:
             else:
                 raise TypeError("quaternion must be an ndarray or Casadi MX or SX")
 
-    def __getattr__(self, attr):
+    def __getattr__(self, attr: str) -> object:
         """
         Custom __getattr__ method for the Quaternion class.
         This method enables access to the same attributes inside numpy objects or CasADi MX or SX objects.
@@ -69,7 +70,7 @@ class Quaternion:
         """
         return self.q
 
-    def __mul__(self, q2: "Quaternion") -> "Quaternion":
+    def __mul__(self, q2: Quaternion) -> Quaternion:
         """
         Custom __mul__ method for the Quaternion class.
         This method performs multiplication between quaternions.
@@ -122,7 +123,7 @@ class Quaternion:
         else:
             raise TypeError("Left Multiplication is only defined for Quaternions and scalars")
 
-    def __rmul__(self, q2) -> "Quaternion":
+    def __rmul__(self, q2: Quaternion | Number) -> Quaternion:
         """
         Custom __rmul__ method for the Quaternion class.
         This method performs left multiplication of a scalar with the current quaternion.
@@ -237,7 +238,7 @@ class Quaternion:
         else:
             raise TypeError("The elements of both quaternions should be of the same type.")
 
-    def __add__(self, q2: "Quaternion") -> "Quaternion":
+    def __add__(self, q2: Quaternion) -> Quaternion:
         """
         Custom __add__ method for the Quaternion class.
         This method performs addition between quaternions.
@@ -283,7 +284,7 @@ class Quaternion:
                 "Right addition is only defined for Quaternions and scalars of the same type."
             )
 
-    def __radd__(self, q2: "Quaternion") -> "Quaternion":
+    def __radd__(self, q2: Quaternion) -> Quaternion:
         """
         Custom __radd__ method for the Quaternion class.
         This method performs left addition of a scalar or quaternion with the current quaternion.
@@ -367,7 +368,7 @@ class Quaternion:
         else:
             raise TypeError("The elements of both quaternions should be of the same type.")
 
-    def __sub__(self, q2: "Quaternion") -> "Quaternion":
+    def __sub__(self, q2: Quaternion) -> Quaternion:
         """
         Custom __sub__ method for the Quaternion class.
         This method performs subtraction between quaternions.
@@ -412,7 +413,7 @@ class Quaternion:
         else:
             raise TypeError("Right sub only defined for Quaternions and scalars")
 
-    def __rsub__(self, q2: "Quaternion") -> "Quaternion":
+    def __rsub__(self, q2: Quaternion) -> Quaternion:
         if isinstance(q2, Quaternion):
             return Quaternion(q=Quaternion.sub(q2.q, self.q))
 
@@ -454,7 +455,7 @@ class Quaternion:
             raise TypeError("The elements of both quaternions should be of the same type.")
         return q_product
 
-    def conjugate(self) -> "Quaternion":
+    def conjugate(self) -> Quaternion:
         q = self.q
         if isinstance(q, np.ndarray):  # Use Vector directly without parentheses
             qw = q[0, 0]
@@ -525,11 +526,11 @@ class Quaternion:
                 "Internal problem with the definition of the Quaternion, it should be a np.array, cs.MX or cs.SX."
             )
 
-    def inverse(self) -> "Quaternion":
+    def inverse(self) -> Quaternion:
         # Function that computes the inverse of a quaternion
         return self.conjugate() / self.square_norm()
 
-    def set(self, q=None):
+    def set(self, q: Vector | None = None) -> None:
         if q is not None:
             # Check if the vairbale is a np.array
             if isinstance(q, np.ndarray):  # Use Vector directly without parentheses
@@ -547,7 +548,7 @@ class Quaternion:
                 raise TypeError("quaternion must be an ndarray or Casadi MX  SX")
 
     # @property
-    def angle_axis(self):
+    def angle_axis(self) -> Vector:
         q = self.q
         norm = self.norm
         if isinstance(q, np.ndarray):  # Use Vector directly without parentheses
@@ -616,7 +617,7 @@ class Quaternion:
                 "Internal problem with the definition of the Quaternion, it should be a np.array, cs.MX or cs.SX."
             )
 
-    def ln(self):
+    def ln(self) -> Quaternion:
         # Log mapping
         q = self.q
         angle_axis_aux = self.angle_axis()
@@ -646,7 +647,7 @@ class Quaternion:
                 "Internal problem with the definition of the Quaternion, it should be a np.array, cs.MX or cs.SX."
             )
 
-    def ln_trans(self):
+    def ln_trans(self) -> Quaternion:
         # Log mapping
         q = self.q
         angle_axis_aux = self.angle_axis
@@ -676,7 +677,7 @@ class Quaternion:
                 "Internal problem with the definition of the Quaternion, it should be a np.array, cs.MX or cs.SX."
             )
 
-    def vector_dot_product(self, q2):
+    def vector_dot_product(self, q2: Quaternion) -> Quaternion:
         if isinstance(q2, Quaternion):
             q_rot = Quaternion.vector_dot(self.q, q2.q)
             return Quaternion(q=q_rot)
@@ -703,7 +704,7 @@ class Quaternion:
         else:
             raise TypeError("The elements of both quaternions should be of the same type.")
 
-    def cross(self, p: "Quaternion") -> "Quaternion":
+    def cross(self, p: Quaternion) -> Quaternion:
         q = self.q
         p = p.get
         if isinstance(p, np.ndarray) and isinstance(
@@ -736,7 +737,7 @@ class Quaternion:
             raise TypeError("The elements of both quaternions should be of the same type.")
 
     @property
-    def H_plus(self) -> "Vector":
+    def H_plus(self) -> Vector:
         p = self.q
         if isinstance(p, np.ndarray):  # Use Vector directly without parentheses
             H_plus = np.array(
@@ -770,7 +771,7 @@ class Quaternion:
             )
 
     @property
-    def H_minus(self) -> "Vector":
+    def H_minus(self) -> Vector:
         p = self.q
         if isinstance(p, np.ndarray):  # Use Vector directly without parentheses
             H_minus = np.array(
