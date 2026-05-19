@@ -42,15 +42,17 @@ src/dq_nmpc/
 ├── math/                     # Pure math — no acados, no ROS, no SHM
 │   ├── quaternion.py         # Quaternion class (numpy, cs.MX, cs.SX backends)
 │   ├── dual_quaternion.py    # DualQuaternion class (SE(3) algebra)
-│   ├── casadi_helpers.py     # quaternion CasADi math (from old utils.py)
+│   ├── dq_algebra.py         # symbolic DQ algebra on raw CasADi arrays
+│   ├── dq_functions.py       # CasADi Function factories (dualquat_from_pose, etc.)
+│   ├── quat_helpers.py       # quaternion-level CasADi helpers
+│   ├── polynomial.py         # order-9 polynomial basis for min-snap
 │   └── test_smoke.py         # import + construction smoke test
 │
 ├── nmpc/                     # NMPC solver — requires acados
 │   ├── dynamics.py           # Quadrotor ODE, DQ kinematics, flatness
 │   ├── ocp_setup.py          # OCP definition: cost, constraints, solver options
-│   ├── controller.py         # solver(): build & return AcadosOcpSolver
+│   ├── planner.py            # Flatness-based reference computation
 │   ├── runner.py             # SHM-based NMPC runtime loop (run_nmpc)
-│   ├── functions.py          # casadi Function factories (dualquat_from_pose, etc.)
 │   └── test_smoke.py         # import + model shape smoke test
 │
 ├── minco_trajectory/         # minco-python integration

@@ -7,6 +7,9 @@ try:
         dualquat_mul_conj,
         log_error_dualquat,
         log_map_dualquat,
+    )
+    from dq_nmpc.math.dq_functions import (  # noqa: F401
+        dualquat_from_pose_casadi,
         make_dualquat_mul_conj,
         make_quat_error_cost,
         make_translation_error_cost,
@@ -23,11 +26,7 @@ try:
         make_quadrotor_model,
         rotate_vector_body_to_inertial,
     )
-    from dq_nmpc.nmpc.functions import dualquat_from_pose_casadi  # noqa: F401
     from dq_nmpc.nmpc.ocp_setup import create_ocp_solver, solver  # noqa: F401
-    from dq_nmpc.nmpc.planner import (  # noqa: F401
-        compute_flatness_states,
-        minimum_snap_final,
-    )
+    from dq_nmpc.nmpc.planner import compute_flatness_states  # noqa: F401
 except ImportError:
     pass

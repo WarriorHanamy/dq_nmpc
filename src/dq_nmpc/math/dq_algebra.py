@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import casadi as ca
 import numpy as np
-from casadi import Function
 
 
 def adjoint_map(qd, v):
@@ -191,81 +190,3 @@ def dualquat_mul_conj(qd, q):
     q_error = q_e_aux
 
     return q_error
-
-
-def make_dualquat_mul_conj():
-    qd = ca.MX.sym("qd", 8, 1)
-    q = ca.MX.sym("q", 8, 1)
-    qd_conjugate = ca.vertcat(qd[0], -qd[1], -qd[2], -qd[3], qd[4], -qd[5], -qd[6], -qd[7])
-    quat_d_data = qd_conjugate[0:4]
-    dual_d_data = qd_conjugate[4:8]
-
-    H_r_plus = ca.vertcat(
-        ca.horzcat(quat_d_data[0], -quat_d_data[1], -quat_d_data[2], -quat_d_data[3]),
-        ca.horzcat(quat_d_data[1], quat_d_data[0], -quat_d_data[3], quat_d_data[2]),
-        ca.horzcat(quat_d_data[2], quat_d_data[3], quat_d_data[0], -quat_d_data[1]),
-        ca.horzcat(quat_d_data[3], -quat_d_data[2], quat_d_data[1], quat_d_data[0]),
-    )
-
-    H_d_plus = ca.vertcat(
-        ca.horzcat(dual_d_data[0], -dual_d_data[1], -dual_d_data[2], -dual_d_data[3]),
-        ca.horzcat(dual_d_data[1], dual_d_data[0], -dual_d_data[3], dual_d_data[2]),
-        ca.horzcat(dual_d_data[2], dual_d_data[3], dual_d_data[0], -dual_d_data[1]),
-        ca.horzcat(dual_d_data[3], -dual_d_data[2], dual_d_data[1], dual_d_data[0]),
-    )
-    zeros = ca.DM.zeros(4, 4)
-    Hplus = ca.vertcat(ca.horzcat(H_r_plus, zeros), ca.horzcat(H_d_plus, H_r_plus))
-
-    q_e_aux = Hplus @ q
-
-    q_error = q_e_aux
-
-    f_error_dual = Function("f_error_dual", [qd, q], [q_error])
-    return f_error_dual
-
-
-def make_quat_error_cost():
-    qd = ca.MX.sym("qd", 4, 1)
-    q = ca.MX.sym("q", 4, 1)
-    qd_conjugate = ca.vertcat(qd[0, 0], -qd[1, 0], -qd[2, 0], -qd[3, 0])
-    quat_d_data = qd_conjugate[0:4, 0]
-    quaternion = q[0:4, 0]
-
-    H_r_plus = ca.vertcat(
-        ca.horzcat(quat_d_data[0, 0], -quat_d_data[1, 0], -quat_d_data[2, 0], -quat_d_data[3, 0]),
-        ca.horzcat(quat_d_data[1, 0], quat_d_data[0, 0], -quat_d_data[3, 0], quat_d_data[2, 0]),
-        ca.horzcat(quat_d_data[2, 0], quat_d_data[3, 0], quat_d_data[0, 0], -quat_d_data[1, 0]),
-        ca.horzcat(quat_d_data[3, 0], -quat_d_data[2, 0], quat_d_data[1, 0], quat_d_data[0, 0]),
-    )
-
-    q_e_aux = H_r_plus @ quaternion
-
-    # q_error = ca.if_else(condition1, expr1, expr2)
-    q_error = q_e_aux
-
-    qw = q_error[0, 0] + ca.np.finfo(np.float64).eps
-    angle = 2 * ca.acos(qw)
-    denominator = ca.sqrt(1 - qw * qw)
-
-    ln_quaternion = ca.vertcat(
-        angle * q_error[1, 0] / denominator,
-        angle * q_error[2, 0] / denominator,
-        angle * q_error[3, 0] / denominator,
-    )
-
-    cost = ca.norm_2(ln_quaternion)
-
-    # Sux variable in roder to get a norm
-    f_cost = Function("f_cost", [qd, q], [cost])
-    return f_cost
-
-
-def make_translation_error_cost():
-    td = ca.MX.sym("td", 4, 1)
-    t = ca.MX.sym("t", 4, 1)
-
-    te = td - t
-
-    cost = te.T @ te
-    f_cost = Function("f_cost", [td, t], [cost])
-    return f_cost

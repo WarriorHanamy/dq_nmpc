@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import warnings
-from pathlib import Path
-
 import casadi as ca
-import yaml
 
 from dq_nmpc.type import Quaternion, Vec3, VecN
 
@@ -53,19 +49,3 @@ def rotate_vector_by_quaternion(vec: Vec3, q: Quaternion) -> ca.MX | ca.SX:
     q_conjugate = conjugate_quaternion(q)
     rotated_vec = multiply_quaternions(multiply_quaternions(q, p), q_conjugate)
     return rotated_vec[1:]
-
-
-def yaml_to_dict(path_to_yaml: str | Path) -> dict:
-    warnings.warn(
-        "yaml_to_dict is deprecated; use NMPCConfig.from_yaml() instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    with open(path_to_yaml, "r") as stream:
-        try:
-            parsed_yaml = yaml.safe_load(stream)
-        except yaml.YAMLError as exc:
-            print(exc)
-    if "/**" in parsed_yaml:
-        parsed_yaml = parsed_yaml["/**"]["ros__parameters"]
-    return parsed_yaml

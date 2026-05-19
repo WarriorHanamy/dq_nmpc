@@ -36,5 +36,6 @@ out/
 trajectory.csv
 trajectory.html
 acados_ocp_mcp.json
+acados_ocp_mpc.json
 
 .opencode/

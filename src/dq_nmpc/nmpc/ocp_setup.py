@@ -1,6 +1,6 @@
 import numpy as np
 from acados_template import AcadosOcp, AcadosOcpSolver
-from casadi import MX
+from casadi import MX, vertcat
 
 from dq_nmpc.nmpc.dynamics import export_acados_model, make_quadrotor_model
 
@@ -49,10 +49,9 @@ def _setup_ocp(
     # Current Dual Quaternion
     dual = model.x[0:8]
 
-    error_total_lie = error_lie_2(dual_d, dual)
     error = dual_error(dual_d, dual)
-    error_c = conjugate(error)
-    ln_error = ln(error)
+    ln_error_full = ln(error)
+    ln_error = vertcat(ln_error_full[1:4], ln_error_full[5:8])
 
     # Inputs
     nominal_input = ocp.p[14:18]
@@ -87,29 +86,13 @@ def _setup_ocp(
         10 * (ln_error.T @ Q_l @ ln_error) + 1 * (error_w.T @ error_w) + 1 * (error_v.T @ error_v)
     )
 
-    # Parameter initial values
-    ocp.parameter_values = np.array(
-        [
-            1.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        ]
-    )
+    # Parameter initial values: ref_params (nx + nu) + cost_params (nx + nx + nu)
+    nx = model.x.size()[0]
+    nu = model.u.size()[0]
+    ref_params = np.zeros(nx + nu)
+    ref_params[0] = 1.0
+    cost_params = np.ones(nx + nx + nu)
+    ocp.parameter_values = np.concatenate([ref_params, cost_params])
 
     # Constraints
     ocp.constraints.constr_type = "BGH"

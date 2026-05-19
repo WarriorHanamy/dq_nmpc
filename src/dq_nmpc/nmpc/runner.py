@@ -14,9 +14,9 @@ from pathlib import Path
 import numpy as np
 from minco.flatness_cache import CachedFlatness
 
+from dq_nmpc.math.dq_functions import dualquat_from_pose_casadi
 from dq_nmpc.minco_trajectory.loader import load_trajectory_npz
 from dq_nmpc.nmpc.dynamics import make_body_velocity_from_twist
-from dq_nmpc.nmpc.functions import dualquat_from_pose_casadi
 from dq_nmpc.nmpc.ocp_setup import solver
 from dq_nmpc.schema import NMPCConfig
 
