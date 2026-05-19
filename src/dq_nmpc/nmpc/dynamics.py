@@ -13,10 +13,41 @@ from dq_nmpc.math.dq_algebra import (
 from dq_nmpc.math.dual_quaternion import DualQuaternion
 from dq_nmpc.math.quaternion import Quaternion
 
-# Sample time symbolic
-_ts_sym = ca.MX.sym("ts", 1, 1)
+"""Quadrotor dynamics in dual-quaternion representation for acados NMPC.
 
-# Defining Dual Quaternion informtatio
+Public API
+  export_acados_model              build AcadosModel from NMPC config dict
+  make_quadrotor_model             build AcadosModel from system parameter list
+  make_body_velocity_from_twist    factory: twist -> body-frame [w; v] mapping
+  make_inertial_velocity_from_twist  factory: twist -> inertial-frame [w; v] mapping
+  make_body_to_inertial_rotation   factory: quaternion rotation body -> inertial
+  make_inertial_to_body_rotation   factory: quaternion rotation inertial -> body
+  rotate_vector_body_to_inertial   inline symbolic quaternion rotation
+  make_get_quaternion              factory: extract quaternion from dual quaternion
+  make_get_translation             factory: extract translation from dual quaternion
+  apply_noise                      apply position/quaternion/twist noise to state
+
+Inner symbols
+  Module-level CasADi MX symbols, kinematics helpers, and accessory factories
+  shared by the two model builders.
+"""
+
+__all__ = [
+    "apply_noise",
+    "export_acados_model",
+    "make_body_to_inertial_rotation",
+    "make_body_velocity_from_twist",
+    "make_get_quaternion",
+    "make_get_translation",
+    "make_inertial_to_body_rotation",
+    "make_inertial_velocity_from_twist",
+    "make_quadrotor_model",
+    "rotate_vector_body_to_inertial",
+]
+
+# ---- Inner Symbols ---------------------------------------------------------
+
+# Defining Dual Quaternion information
 _qw_sym = ca.MX.sym("qw", 1, 1)
 _qx_sym = ca.MX.sym("qx", 1, 1)
 _qy_sym = ca.MX.sym("qy", 1, 1)
@@ -65,26 +96,9 @@ _wx_des_sym = ca.MX.sym("wx_1d", 1, 1)
 _wy_des_sym = ca.MX.sym("wy_1d", 1, 1)
 _wz_des_sym = ca.MX.sym("wz_1d", 1, 1)
 
-_Vd_sym = ca.vertcat(0.0, _vx_des_sym, _vy_des_sym, _vz_des_sym)
-_Wd_sym = ca.vertcat(0.0, _wx_des_sym, _wy_des_sym, _wz_des_sym)
-
-# Symbolic variables desired velocities
 _w_des_sym = ca.vertcat(
     _wx_des_sym, _wy_des_sym, _wz_des_sym, _vx_des_sym, _vy_des_sym, _vz_des_sym
 )
-
-# Defining the control gains using symbolic variables
-_kr1_sym = ca.MX.sym("kr1", 1, 1)
-_kr2_sym = ca.MX.sym("kr2", 1, 1)
-_kr3_sym = ca.MX.sym("kr3", 1, 1)
-
-_kd1_sym = ca.MX.sym("kd1", 1, 1)
-_kd2_sym = ca.MX.sym("kd2", 1, 1)
-_kd3_sym = ca.MX.sym("kd3", 1, 1)
-
-_Kr_sym = ca.vertcat(0.0, _kr1_sym, _kr2_sym, _kr3_sym)
-_Kd_sym = ca.vertcat(0.0, _kd1_sym, _kd2_sym, _kd3_sym)
-
 
 # Creating states of the current dualquaternion
 _dq_sym = DualQuaternion(q_real=Quaternion(q=_q_sym), q_dual=Quaternion(q=_d_sym))
@@ -92,11 +106,8 @@ _dq_sym = DualQuaternion(q_real=Quaternion(q=_q_sym), q_dual=Quaternion(q=_d_sym
 # Creating the desired quaternion
 _dq_des_sym = DualQuaternion(q_real=Quaternion(q=_q_des_sym), q_dual=Quaternion(q=_d_des_sym))
 
-# Creating the Desired dualquaternion twist
-_twist_des_sym = DualQuaternion(q_real=Quaternion(q=_Wd_sym), q_dual=Quaternion(q=_Vd_sym))
 
-
-# Quaternion rotation
+# ---- Inner Helpers: rotation factories (also public) ----
 def make_body_to_inertial_rotation():
     # Function that enables the rotation of a vector using quaternions
 
@@ -183,13 +194,12 @@ def make_inertial_to_body_rotation():
     return f_rot_inv
 
 
-# Creating functions which are going to be used later
-# _f_rotation_sym move a vector from the body frame to the inertial frame
+# ---- Inner Instantiations ----
 _f_rotation_sym = make_body_to_inertial_rotation()
-# _f_rotation_sym move a vector from the inertial frame to the body frame
 _f_rotation_inverse_sym = make_inertial_to_body_rotation()
 
 
+# ---- Accessory factories and inline rotation ----
 def rotate_vector_body_to_inertial(quat_aux_1, vector_aux_1):
     # Function that enables the rotation of a vector using quaternions
 
@@ -227,7 +237,7 @@ def rotate_vector_body_to_inertial(quat_aux_1, vector_aux_1):
     return vector_i[1:4, 0]
 
 
-def make_dualquat_get_all():
+def _make_dualquat_get_all():
     # Function that obtains the elements of the dual quaternion  real an dual part
     values = _dq_sym.get[:, 0]
     dualquaternion_f = Function("dualquaternion_f", [_dual_sym], [values])
@@ -240,13 +250,13 @@ def make_get_translation():
     return f_trans
 
 
-def make_get_real_part():
+def _make_get_real_part():
     values = _dq_sym.Qr.get[:, 0]
     f_real = Function("f_real", [_dual_sym], [values])
     return f_real
 
 
-def make_get_dual_part():
+def _make_get_dual_part():
     values = _dq_sym.Qd.get[:, 0]
     f_dual = Function("f_dual", [_dual_sym], [values])
     return f_dual
@@ -258,15 +268,15 @@ def make_get_quaternion():
     return f_quat
 
 
-# Creating Functions
-_get_real_sym = make_get_real_part()
-_get_dual_sym = make_get_dual_part()
+# ---- Inner Instantiations (DQ accessors) ----
+_get_real_sym = _make_get_real_part()
+_get_dual_sym = _make_get_dual_part()
 _get_trans_sym = make_get_translation()
 _get_quat_sym = make_get_quaternion()
 
 
-# Creation of dualquaternion kinemtics
-def dualquat_kinematics(quat, omega):
+# ---- Inner Dynamics: DQ kinematics ----
+def _dualquat_kinematics(quat, omega):
     # Functions that computes the differential kinematics based on dualquaternions
 
     # Split values real and dual
@@ -314,6 +324,7 @@ def dualquat_kinematics(quat, omega):
     return q_dot
 
 
+# ---- Public API: velocity/twist mappings ----
 def make_body_velocity_from_twist(_w_des_sym=_w_des_sym, _dual_des_sym=_dual_des_sym):
     # Funtions that computes the twist based on dualquaternions
     twist = ca.vertcat(0.0, _w_des_sym[0:3, 0], 0.0, _w_des_sym[3:6, 0])
@@ -353,7 +364,8 @@ def make_inertial_velocity_from_twist(_w_des_sym=_w_des_sym, _dual_des_sym=_dual
     return f_velocity
 
 
-def dualquat_acceleration(dual, omega, u, L):
+# ---- Inner Dynamics: DQ acceleration ----
+def _dualquat_acceleration(dual, omega, u, L):
     # Split Control Actions
     force = u[0, 0]
     torques = u[1:4, 0]
@@ -392,6 +404,7 @@ def dualquat_acceleration(dual, omega, u, L):
     return T
 
 
+# ---- Public API: AcadosModel builders ----
 def export_acados_model(params):
     # Constraints variable
     constraint = ca.types.SimpleNamespace()
@@ -493,8 +506,8 @@ def export_acados_model(params):
     model.u = u
 
     # System Dynamics
-    dual_dot = dualquat_kinematics(dualquat, twist)
-    twist_dot = dualquat_acceleration(dualquat, twist, u, L)
+    dual_dot = _dualquat_kinematics(dualquat, twist)
+    twist_dot = _dualquat_acceleration(dualquat, twist, u, L)
     f_expl = ca.vertcat(dual_dot, twist_dot)
     f_impl = X_dot - f_expl
 
@@ -621,11 +634,10 @@ def make_quadrotor_model(L: list) -> AcadosModel:
 
     u = ca.vertcat(F_ref, tau_1_ref, tau_2_ref, tau_3_ref)
 
-    dual_dot = dualquat_kinematics(dualquat, twist)
-    twist_dot = dualquat_acceleration(dualquat, twist, u, L)
+    dual_dot = _dualquat_kinematics(dualquat, twist)
+    twist_dot = _dualquat_acceleration(dualquat, twist, u, L)
 
     norm_q = ca.norm_2(_get_quat_sym(X[0:8]))
-    dot_real_dual = 2 * ca.dot(X[0:4], X[4:8])
     constraint.norm = Function("norm", [X], [norm_q])
     constraint.expr = ca.vertcat(norm_q)
     constraint.min = 1.0
