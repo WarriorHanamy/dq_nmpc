@@ -5,8 +5,8 @@ This workflow imports the library function and wraps it with the CLI-facing inte
 
 from pathlib import Path
 
+from dq_nmpc.minco_trajectory.generator import generate_trajectory as _generate_trajectory
 from dq_nmpc.schema import TrajectoryConfig
-from dq_nmpc.trajectory.generator import generate_trajectory as _generate_trajectory
 
 
 def generate_trajectory(

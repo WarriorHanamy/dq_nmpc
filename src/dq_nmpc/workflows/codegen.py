@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from dq_nmpc.nmpc.controller import solver
+from dq_nmpc.nmpc.ocp_setup import solver
 from dq_nmpc.schema import NMPCConfig
 
 logger = logging.getLogger(__name__)

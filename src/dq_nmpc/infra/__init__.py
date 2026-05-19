@@ -1,11 +1,11 @@
-"""Stateless primitives — paths, subprocess, SHM helpers.
+"""Infrastructure primitives — paths, subprocess, SHM helpers.
 
 No classes. No mutable module-level state. Every function returns a value.
 """
 
-from dq_nmpc.core.docker_util import build_sim, launch_sim_core, sim_env
-from dq_nmpc.core.shm_util import cleanup_shm, wait_for_shm
-from dq_nmpc.core.workspace import (
+from dq_nmpc.infra.docker_util import build_sim, launch_sim_core, sim_env
+from dq_nmpc.infra.shm_util import cleanup_shm, wait_for_shm
+from dq_nmpc.infra.workspace import (
     build_dir,
     core_bin,
     model_path,

@@ -11,8 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dq_nmpc.core.docker_util import ensure_sim_built, launch_sim_core
-from dq_nmpc.core.shm_util import cleanup_shm, wait_for_shm
+from dq_nmpc.infra.docker_util import ensure_sim_built, launch_sim_core
+from dq_nmpc.infra.shm_util import cleanup_shm, wait_for_shm
 from dq_nmpc.nmpc.runner import run_nmpc
 
 logger = logging.getLogger(__name__)

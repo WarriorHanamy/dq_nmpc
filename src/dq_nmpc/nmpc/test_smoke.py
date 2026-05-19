@@ -10,8 +10,8 @@ import sys
 
 def _test_import():
     try:
-        from dq_nmpc.nmpc.controller import solver
         from dq_nmpc.nmpc.dynamics import export_acados_model
+        from dq_nmpc.nmpc.ocp_setup import solver
     except ImportError as e:
         return None, str(e)
 

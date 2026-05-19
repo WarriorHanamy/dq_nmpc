@@ -14,11 +14,11 @@ from pathlib import Path
 import numpy as np
 from minco.flatness_cache import CachedFlatness
 
-from dq_nmpc.nmpc.controller import solver
+from dq_nmpc.minco_trajectory.loader import load_trajectory_npz
 from dq_nmpc.nmpc.dynamics import make_body_velocity_from_twist
 from dq_nmpc.nmpc.functions import dualquat_from_pose_casadi
+from dq_nmpc.nmpc.ocp_setup import solver
 from dq_nmpc.schema import NMPCConfig
-from dq_nmpc.trajectory.loader import load_trajectory_npz
 
 try:
     from quadrotor_sim.shm import (
@@ -36,6 +36,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# TODO, change to more acceessible state
 dualquat_from_pose = dualquat_from_pose_casadi()
 dual_twist = make_body_velocity_from_twist()
 

@@ -11,19 +11,19 @@ from rclpy.node import Node
 from scipy.spatial.transform import Rotation as R
 from visualization_msgs.msg import Marker
 
-from dq_nmpc.nmpc.controller import solver
+from dq_nmpc.math.dq_algebra import make_dualquat_mul_conj
 from dq_nmpc.nmpc.dynamics import (
+    make_body_to_inertial_rotation,
     make_body_velocity_from_twist,
     make_get_quaternion,
     make_get_translation,
-    make_dualquat_mul_conj,
-    make_body_to_inertial_rotation,
     make_inertial_to_body_rotation,
     make_inertial_velocity_from_twist,
 )
 
 # Libraries of dual-quaternions
 from dq_nmpc.nmpc.functions import dualquat_from_pose_casadi
+from dq_nmpc.nmpc.ocp_setup import solver
 from dq_nmpc.ros.adapters import (
     odometry_to_classical,
     position_cmd_to_trajectory,

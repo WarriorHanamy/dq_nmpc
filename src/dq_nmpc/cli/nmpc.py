@@ -27,7 +27,7 @@ def main_run():
     _setup_acados_env()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-    from dq_nmpc.core.workspace import model_path
+    from dq_nmpc.infra.workspace import model_path
     from dq_nmpc.workflows.run_nmpc import nmpc_loop
 
     parser = argparse.ArgumentParser(description="DQ NMPC orchestrator")

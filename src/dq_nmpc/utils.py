@@ -1,6 +1,6 @@
-"""Re-export shim — imports moved to dq_nmpc.utils.casadi_helpers."""
+"""Re-export shim — imports moved to dq_nmpc.math.casadi_helpers."""
 
-from dq_nmpc.utils.casadi_helpers import (  # noqa: F401
+from dq_nmpc.math.casadi_helpers import (  # noqa: F401
     calc_quat_cost,
     calc_vec_cost,
     conjugate_quaternion,

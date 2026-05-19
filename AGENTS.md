@@ -21,7 +21,7 @@ src/dq_nmpc/
 │
 ├── type.py                   # Scalar, Vector type aliases (numpy | casadi)
 │
-├── core/                     # Stateless primitives — no classes, no mutable state
+├── infra/                    # Infrastructure primitives — no classes, no mutable state
 │   ├── workspace.py          # project_root(), paths for sim binary and model
 │   ├── docker_util.py        # build_sim(), launch_sim_core(), sim_env()
 │   └── shm_util.py           # wait_for_shm(), cleanup_shm()
@@ -36,14 +36,13 @@ src/dq_nmpc/
 │   └── generate_trajectory.py
 │
 ├── utils/                    # Standalone helpers
-│   ├── casadi_helpers.py     # quaternion CasADi math (from old utils.py)
-│   └── waypoints.py          # SHAPES, waypoints_for_shape(), make_sfc_box()
 │
 ├── utils.py                  # Re-export shim (backward compat)
 │
 ├── math/                     # Pure math — no acados, no ROS, no SHM
 │   ├── quaternion.py         # Quaternion class (numpy, cs.MX, cs.SX backends)
 │   ├── dual_quaternion.py    # DualQuaternion class (SE(3) algebra)
+│   ├── casadi_helpers.py     # quaternion CasADi math (from old utils.py)
 │   └── test_smoke.py         # import + construction smoke test
 │
 ├── nmpc/                     # NMPC solver — requires acados
@@ -54,39 +53,41 @@ src/dq_nmpc/
 │   ├── functions.py          # casadi Function factories (dualquat_from_pose, etc.)
 │   └── test_smoke.py         # import + model shape smoke test
 │
-├── trajectory/               # minco-python integration
+├── minco_trajectory/         # minco-python integration
 │   ├── generator.py          # GCOPTER optimize → sample flatness → write CSV
 │   ├── loader.py             # read CSV → ReferenceTrajectory
+│   ├── waypoints.py          # SHAPES, waypoints_for_shape(), make_sfc_box()
+│   ├── visualization.py      # Plotly interactive trajectory plots
 │   └── test_smoke.py         # loader roundtrip smoke test
 │
-├── ros/                      # ROS 2 adapter layer (optional, Docker-based)
-│   ├── nmpc_node.py          # DQnmpcNode
-│   ├── planner_node.py       # PlannerNode
-│   └── adapters.py           # ROS msg ↔ Pydantic schema conversion
-│
 └── config/mujoco/default/    # YAML parameter files (nmpc.yaml)
+
+docker/                       # ROS 2 adapter (Docker-based, was src/dq_nmpc/ros/)
+├── ros2_adapter_node.py      # ROS2 adapter: SHM ↔ /odom + /cmd topics
+├── entrypoint.sh              # Docker entrypoint: source ROS, launch adapter
+└── dq_nmpc_ros2.Dockerfile   # ros:humble-ros-core + pydantic + numpy
 ```
 
 ### Dependency layers
 
 ```
-schema  ──(pydantic)──        # single frozen backbone
-math    ──(numpy, casadi)──   # no schema, no acados
-core    ──(schema)──          # stateless primitives
+schema  ──(pydantic)──              # single frozen backbone
+math    ──(numpy, casadi)──         # no schema, no acados
+infra   ──(schema)──                # infrastructure primitives
 utils   ──(numpy, casadi)──
 │
 nmpc    ──(acados, math, schema)──
-trajectory ──(minco-python, utils)──
+minco_trajectory ──(minco-python, utils)──
 │
-workflows ──(core, nmpc, trajectory)──   # chains layers
-cli      ──(workflows)──                 # dispatch only
-ros      ──(rclpy, optional, Docker)──
+workflows ──(infra, nmpc, minco_trajectory)──   # chains layers
+cli      ──(workflows)──                       # dispatch only
+docker   ──(rclpy, optional)──               # ROS 2 adapter
 ```
 
-- `math`, `schema`, `core`, `utils` are importable without acados or minco.
+- `math`, `schema`, `infra`, `utils` are importable without acados or minco.
 - `nmpc` works only when acados is built and on `PYTHONPATH`.
-- `trajectory/` needs minco-python built (CMake + scikit-build-core).
-- `ros` is optional — the Docker adapter (`docker/dq_nmpc_ros2.Dockerfile`) provides ROS 2 bridging.
+- `minco_trajectory/` needs minco-python built (CMake + scikit-build-core).
+- `docker/` is optional — contains the ROS 2 adapter (`docker/dq_nmpc_ros2.Dockerfile`) that provides ROS 2 bridging via Docker.
 
 ---
 

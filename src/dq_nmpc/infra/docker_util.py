@@ -9,7 +9,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from dq_nmpc.core.workspace import core_bin, mujoco_root
+from dq_nmpc.infra.workspace import core_bin, mujoco_root
 
 
 def sim_env() -> dict[str, str]:

@@ -8,19 +8,19 @@ from nav_msgs.msg import Odometry
 from quadrotor_msgs.msg import PositionCommand, TrajectoryPoint
 from rclpy.node import Node
 
+from dq_nmpc.math.dq_algebra import make_dualquat_mul_conj
 from dq_nmpc.nmpc.dynamics import (
-    compute_flatness_states,
+    make_body_to_inertial_rotation,
     make_body_velocity_from_twist,
     make_get_quaternion,
     make_get_translation,
-    make_dualquat_mul_conj,
-    make_body_to_inertial_rotation,
     make_inertial_to_body_rotation,
     make_inertial_velocity_from_twist,
 )
 
 # Libraries of dual-quaternions
 from dq_nmpc.nmpc.functions import dualquat_from_pose_casadi
+from dq_nmpc.nmpc.planner import compute_flatness_states
 from dq_nmpc.ros.adapters import odometry_to_classical
 
 # Function to create a dualquaternion, get quaernion and translatation and returns a dualquaternion

@@ -1,8 +1,8 @@
-"""Smoke test for trajectory/ — import loader, basic roundtrip.
+"""Smoke test for minco_trajectory/ — import loader, basic roundtrip.
 
 Usage:
-    uv run python src/dq_nmpc/trajectory/test_smoke.py           # full
-    uv run python src/dq_nmpc/trajectory/test_smoke.py --quick   # sub-second
+    uv run python src/dq_nmpc/minco_trajectory/test_smoke.py           # full
+    uv run python src/dq_nmpc/minco_trajectory/test_smoke.py --quick   # sub-second
 """
 
 import sys
@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 def _test_import():
-    from dq_nmpc.trajectory.loader import load_trajectory_csv
+    from dq_nmpc.minco_trajectory.loader import load_trajectory_csv
 
     return load_trajectory_csv
 

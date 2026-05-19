@@ -12,9 +12,9 @@ import minco
 import numpy as np
 from minco.flatness_cache import CachedFlatness
 
+from dq_nmpc.minco_trajectory.visualization import visualize_trajectory
+from dq_nmpc.minco_trajectory.waypoints import make_sfc_box, waypoints_for_shape
 from dq_nmpc.schema import ARTIFACTS_DIR, TRAJECTORY_CSV_COLUMNS, TrajectoryConfig
-from dq_nmpc.trajectory.visualization import visualize_trajectory
-from dq_nmpc.utils.waypoints import make_sfc_box, waypoints_for_shape
 
 _GCONFIG_ROOT = (
     Path(__file__).resolve().parents[3] / "src" / "dq_nmpc" / "config" / "mujoco" / "default"
