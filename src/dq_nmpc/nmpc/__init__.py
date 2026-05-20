@@ -9,7 +9,7 @@ try:
         log_map_dualquat,
     )
     from dq_nmpc.math.dq_functions import (  # noqa: F401
-        dualquat_from_pose_casadi,
+        make_dualquat_from_pose,
         make_dualquat_mul_conj,
         make_quat_error_cost,
         make_translation_error_cost,

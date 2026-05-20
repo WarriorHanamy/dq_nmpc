@@ -1,7 +1,10 @@
 """SHM-based NMPC runtime loop.
 
-Phase 1: SE(3) geometric controller converges to the first trajectory point.
-Phase 2: Transition to NMPC trajectory tracking.
+Phase 1a: SE(3) geometric controller converges to takeoff point (0, 0, 1.5).
+Phase 1b: SE(3) controller converges to the first trajectory point.
+Phase 2:  Transition to NMPC trajectory tracking.
+
+All SE3 segments are recorded via DroneVisualizer (Rerun).
 """
 
 from __future__ import annotations
@@ -14,8 +17,9 @@ from pathlib import Path
 import numpy as np
 
 from dq_nmpc.minco_trajectory.loader import load_trajectory_npz
+from dq_nmpc.nmpc.drone_visualizer import DroneVisualizer
 from dq_nmpc.nmpc.se3_controller import se3_control
-from dq_nmpc.schema import NMPCConfig, Se3Config
+from dq_nmpc.schema import NMPCConfig, OutputPaths, Se3Config
 
 try:
     from quadrotor_sim.shm import (
@@ -38,7 +42,6 @@ def run_nmpc(
     config_path: str | Path,
     trajectory_path: str | Path,
     se3_config_path: str | Path | None = None,
-    flag_build: bool = True,
     max_iter: int = 0,
 ):
     if not SHM_AVAILABLE:
@@ -63,6 +66,15 @@ def run_nmpc(
     logger.info(
         "First trajectory point: (%.3f, %.3f, %.3f)", first_pos[0], first_pos[1], first_pos[2]
     )
+
+    rrd_path = str(OutputPaths().se3_rrd)
+    viz = DroneVisualizer(rrd_path)
+    viz.log_static_trajectory(traj5)
+    viz.log_static_markers(
+        takeoff=(0.0, 0.0, 1.5),
+        first_traj=(float(first_pos[0]), float(first_pos[1]), float(first_pos[2])),
+    )
+    logger.info("Rerun recording to %s", rrd_path)
 
     state_reader = ShmReader(SHM_STATE_FILE, QuadrotorStateC, 192)
     ctrl_writer = ShmWriter(SHM_CTRL_FILE, QuadrotorControlC, 64)
@@ -95,13 +107,19 @@ def run_nmpc(
     dt_ns = int(ts * 1e9)
     next_wake = time.monotonic_ns()
 
-    def _se3_converge(target_pos: np.ndarray, label: str) -> bool:
+    def _se3_converge(target_pos: np.ndarray, target_label: str) -> bool:
         """Run SE3 control loop until convergence or KeyboardInterrupt.
         Returns True if converged, False if interrupted."""
         nonlocal next_wake
         logger.info(
-            "SE3 → %s (%.2f, %.2f, %.2f)", label, target_pos[0], target_pos[1], target_pos[2]
+            "SE3 → %s (%.2f, %.2f, %.2f)",
+            target_label,
+            target_pos[0],
+            target_pos[1],
+            target_pos[2],
         )
+        viz.log_target(target_pos)
+
         while True:
             while not state_reader.read(state_buf):
                 time.sleep(0.0001)
@@ -113,10 +131,13 @@ def run_nmpc(
 
             position_error = float(np.linalg.norm(pos - target_pos))
 
+            viz.log_drone(pos, quat_wxyz, state_buf.time)
+            viz.log_error(position_error)
+
             if position_error < convergence_threshold:
                 logger.info(
                     "SE3 converged to %s: pos_error=%.4f m < %.3f m",
-                    label,
+                    target_label,
                     position_error,
                     convergence_threshold,
                 )
@@ -143,6 +164,8 @@ def run_nmpc(
                 torque_y=tau_y,
                 torque_z=tau_z,
             )
+
+            viz.log_control(thrust, tau_x, tau_y, tau_z)
 
             now_ns = time.monotonic_ns()
             if now_ns < next_wake:
@@ -181,14 +204,14 @@ def main():
 
     if len(sys.argv) < 3:
         print(
-            "Usage: dq-nmpc-runner <nmpc.yaml> <trajectory.npz> [--se3-config SE3.yaml] [--no-build] [--max-iter N]"
+            "Usage: dq-nmpc-runner <nmpc.yaml> <trajectory.npz>"
+            " [--se3-config SE3.yaml] [--max-iter N]"
         )
         sys.exit(1)
 
     config_path = sys.argv[1]
     trajectory_path = sys.argv[2]
     se3_config_path = None
-    flag_build = "--no-build" not in sys.argv
     max_iter = 0
     for i, arg in enumerate(sys.argv):
         if arg == "--se3-config" and i + 1 < len(sys.argv):
@@ -200,7 +223,6 @@ def main():
         config_path,
         trajectory_path,
         se3_config_path=se3_config_path,
-        flag_build=flag_build,
         max_iter=max_iter,
     )
 

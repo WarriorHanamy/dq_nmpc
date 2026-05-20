@@ -46,7 +46,6 @@ def main_run():
     parser = argparse.ArgumentParser(description="DQ NMPC orchestrator")
     parser.add_argument("config", help="Path to nmpc.yaml")
     parser.add_argument("trajectory", help="Path to trajectory.npz")
-    parser.add_argument("--no-build", action="store_true", help="Skip acados C code generation")
     parser.add_argument("--max-iter", type=int, default=0, help="Max NMPC iterations (0=unlimited)")
     parser.add_argument("--model", type=str, default=str(model_path()), help="Path to drone.xml")
     parser.add_argument(
@@ -57,7 +56,6 @@ def main_run():
     nmpc_loop(
         config_path=_resolve(args.config),
         trajectory_path=_resolve(args.trajectory),
-        flag_build=not args.no_build,
         max_iter=args.max_iter,
         se3_path=_resolve(args.se3_config) if args.se3_config else None,
         model_path=args.model,

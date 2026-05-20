@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # ---------------------------------------------------------------------------
 # Layout constants — single source of truth for I/O contracts
@@ -38,8 +38,6 @@ TRAJECTORY_CSV_COLUMNS: tuple[str, ...] = (
     "wz",
     "thrust",
 )
-
-ARTIFACTS_DIR = "out"
 
 
 def csv_column_index(name: str) -> int:
@@ -444,3 +442,54 @@ class Se3Config(BaseModel):
         with open(path, "r") as stream:
             raw = yaml.safe_load(stream)
         return cls(**raw)
+
+
+class OutputPaths(BaseModel):
+    """Resolved output artifact paths for a trajectory shape.
+
+    Directories are created lazily on first property access.
+    """
+
+    model_config = ConfigDict(frozen=False)
+
+    base_dir: str = "out"
+    shape: str = "circle"
+
+    @field_validator("shape")
+    @classmethod
+    def _shape_known(cls, v: str) -> str:
+        from dq_nmpc.minco_trajectory.waypoints import SHAPES
+
+        if v not in SHAPES:
+            raise ValueError(f"Unknown shape '{v}'. Choose from: {SHAPES}")
+        return v
+
+    def _shape_dir(self) -> Path:
+        return Path(self.base_dir) / self.shape
+
+    def _mkdir(self) -> None:
+        self._shape_dir().mkdir(parents=True, exist_ok=True)
+
+    @property
+    def trajectory_csv(self) -> Path:
+        self._mkdir()
+        return self._shape_dir() / "trajectory.csv"
+
+    @property
+    def trajectory_npz(self) -> Path:
+        self._mkdir()
+        return self._shape_dir() / "trajectory.npz"
+
+    @property
+    def trajectory_html(self) -> Path:
+        self._mkdir()
+        return self._shape_dir() / "trajectory.html"
+
+    @property
+    def se3_rrd(self) -> Path:
+        Path(self.base_dir).mkdir(parents=True, exist_ok=True)
+        return Path(self.base_dir) / "se3_bootstrap.rrd"
+
+    @classmethod
+    def from_trajectory_config(cls, tc: TrajectoryConfig) -> OutputPaths:
+        return cls(shape=tc.shape)

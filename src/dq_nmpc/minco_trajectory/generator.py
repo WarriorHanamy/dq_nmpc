@@ -14,7 +14,7 @@ from minco.flatness_cache import CachedFlatness
 
 from dq_nmpc.minco_trajectory.visualization import visualize_trajectory
 from dq_nmpc.minco_trajectory.waypoints import make_sfc_box, waypoints_for_shape
-from dq_nmpc.schema import ARTIFACTS_DIR, TRAJECTORY_CSV_COLUMNS, TrajectoryConfig
+from dq_nmpc.schema import TRAJECTORY_CSV_COLUMNS, OutputPaths, TrajectoryConfig
 
 _GCONFIG_ROOT = (
     Path(__file__).resolve().parents[3] / "src" / "dq_nmpc" / "config" / "mujoco" / "default"
@@ -91,9 +91,14 @@ def generate_trajectory(
     output: str | Path | None = None,
 ) -> Path:
     if output is None:
-        output = Path(f"{ARTIFACTS_DIR}/{config.shape}/trajectory.csv")
+        paths = OutputPaths.from_trajectory_config(config)
+        output = paths.trajectory_csv
+        npz_path = paths.trajectory_npz
+        viz_path = paths.trajectory_html
     else:
         output = Path(output)
+        npz_path = output.with_suffix(".npz")
+        viz_path = output.with_suffix(".html")
 
     flatness = CachedFlatness(mass=config.mass, gravity=config.gravity)
 
@@ -151,13 +156,11 @@ def generate_trajectory(
 
     print(f"Trajectory saved: {output}  ({len(rows)} points, cost={cost:.4f})")
 
-    npz_path = output.with_suffix(".npz")
     durations = np.array(list(traj5.durations), dtype=np.float64)
     coeffs = np.stack([traj5[i].get_coeff_mat() for i in range(len(traj5))])
     np.savez(npz_path, durations=durations, coeffs=coeffs)
     print(f"Trajectory coeffs saved: {npz_path}")
 
-    viz_path = output.with_suffix(".html")
     visualize_trajectory(
         csv_path=output,
         shape=config.shape,

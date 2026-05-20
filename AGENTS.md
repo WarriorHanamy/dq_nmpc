@@ -14,10 +14,10 @@ src/dq_nmpc/
 │                              #   Models: NMPCConfig, NMPCParams, ControlCommand,
 │                              #     DualQuaternionState, ClassicalState,
 │                              #     TrajectoryPoint, ReferenceTrajectory,
-│                              #     SHMConfig, DockerConfig
+│                              #     SHMConfig, TrajectoryConfig, Se3Config,
+│                              #     OutputPaths (lazy artifact paths)
 │                              #   Layout constants:
-│                              #     TRAJECTORY_CSV_COLUMNS, ARTIFACTS_DIR,
-│                              #     csv_column_index()
+│                              #     TRAJECTORY_CSV_COLUMNS, csv_column_index()
 │
 ├── type.py                   # Scalar, Vector type aliases (numpy | casadi)
 │
@@ -27,11 +27,12 @@ src/dq_nmpc/
 │   └── shm_util.py           # wait_for_shm(), cleanup_shm()
 │
 ├── cli/                      # Zero-logic dispatch — parse args, call one function
+│   ├── build.py              # dq-build-sim (→ infra.build_sim)
 │   ├── nmpc.py               # dq-run (→ workflows.nmpc_loop), dq-codegen (→ workflows.codegen)
 │   └── trajectory.py         # dq-trajectory (→ workflows.generate_trajectory)
 │
 ├── workflows/                # Domain-specific multi-step pipelines
-│   ├── run_nmpc.py           # build sim → launch core → wait SHM → NMPC loop → cleanup
+│   ├── run_nmpc.py           # ensure sim built → launch core → wait SHM → NMPC loop → cleanup
 │   ├── codegen.py            # load YAML → acados solver codegen
 │   └── generate_trajectory.py
 │
@@ -48,7 +49,9 @@ src/dq_nmpc/
 │   ├── dynamics.py           # Quadrotor ODE, DQ kinematics, flatness
 │   ├── ocp_setup.py          # OCP definition: cost, constraints, solver options
 │   ├── planner.py            # Flatness-based reference computation
-│   ├── runner.py             # SHM-based NMPC runtime loop (run_nmpc)
+│   ├── runner.py             # SE3 bootstrap → NMPC runtime loop (run_nmpc)
+│   ├── se3_controller.py     # SE(3) geometric controller (Lee et al. 2010)
+│   ├── drone_visualizer.py   # DroneVisualizer — Rerun live + offline recorder
 │   └── test_smoke.py         # import + model shape smoke test
 │
 ├── minco_trajectory/         # minco-python integration
@@ -164,8 +167,22 @@ Publishes `/odom` (from SHM state), subscribes to `/cmd` (writes SHM control).
 ```
 uv run ruff check src/ tests/       # lint
 uv run ruff check --fix src/ tests/ # auto-fix
-uv run pytest -v                    # run tests (11 tests, no acados needed)
+uv run pytest -v                    # run tests (14 tests, no acados needed)
 ```
+
+---
+
+## CasADi Function Style
+
+For each CasADi cost/constraint function:
+
+- Define it through a `make_*` factory function.
+- Use explicit and descriptive symbolic variable names.
+- Keep Python variable names, MX/SX symbol names, and CasADi input/output names aligned.
+- Document all inputs and outputs with shape information in the docstring.
+- Use meaningful intermediate variable names instead of abbreviations.
+- Attach a short `.description` metadata string when the function is exposed externally.
+- Return a named `casadi.Function` with named input and output ports.
 
 ---
 

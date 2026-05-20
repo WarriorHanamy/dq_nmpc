@@ -23,7 +23,6 @@ def nmpc_loop(
     config_path: str | Path,
     trajectory_path: str | Path,
     *,
-    flag_build: bool = True,
     max_iter: int = 0,
     se3_path: str | Path | None = None,
     model_path: str | Path | None = None,
@@ -32,7 +31,6 @@ def nmpc_loop(
 
     @param[in] config_path     Path to nmpc.yaml
     @param[in] trajectory_path Path to trajectory.npz
-    @param[in] flag_build      If True, run acados code generation
     @param[in] max_iter        Maximum NMPC iterations (0 = unlimited)
     @param[in] se3_path        Path to se3.yaml (SE3 controller gains)
     @param[in] model_path      Path to drone.xml
@@ -60,7 +58,6 @@ def nmpc_loop(
             config_path=config_path,
             trajectory_path=trajectory_path,
             se3_config_path=se3_path,
-            flag_build=flag_build,
             max_iter=max_iter,
         )
 
