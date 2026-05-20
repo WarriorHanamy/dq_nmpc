@@ -10,6 +10,8 @@ import numpy as np
 from dq_nmpc.math.quaternion import Quaternion
 from dq_nmpc.type import Scalar, Vector
 
+__all__ = ["DualQuaternion"]
+
 
 @dataclasses.dataclass
 class DualQuaternion:

@@ -8,6 +8,22 @@ from __future__ import annotations
 import casadi as ca
 import numpy as np
 
+from dq_nmpc.type import Quaternion, Vec3, VecN
+
+__all__ = [
+    "adjoint_map",
+    "calc_quat_cost",
+    "calc_vec_cost",
+    "conjugate_quaternion",
+    "dualquat_conjugate",
+    "dualquat_mul_conj",
+    "log_error_dualquat",
+    "log_map_dualquat",
+    "multiply_quaternions",
+    "normalize_quaternion",
+    "rotate_vector_by_quaternion",
+]
+
 
 def adjoint_map(qd, v):
     qd_conjugate = ca.vertcat(qd[0], -qd[1], -qd[2], -qd[3], qd[4], -qd[5], -qd[6], -qd[7])
@@ -190,3 +206,47 @@ def dualquat_mul_conj(qd, q):
     q_error = q_e_aux
 
     return q_error
+
+
+def calc_quat_cost(
+    q_des: Quaternion,
+    q_cur: Quaternion,
+    weight: VecN,
+) -> ca.MX | ca.SX:
+    diff = multiply_quaternions(q_des, conjugate_quaternion(q_cur))
+    cost = ca.transpose(diff) @ ca.diag(weight) @ diff
+    return cost
+
+
+def calc_vec_cost(
+    des: VecN,
+    curr: VecN,
+    weight: VecN,
+) -> ca.MX | ca.SX:
+    diff = curr - des
+    cost = ca.transpose(diff) @ ca.diag(weight) @ diff
+    return cost
+
+
+def normalize_quaternion(q: Quaternion) -> ca.MX | ca.SX:
+    magnitude = ca.norm_2(q)
+    return q / magnitude
+
+
+def conjugate_quaternion(q: Quaternion) -> ca.MX | ca.SX:
+    return ca.vertcat(q[0], -q[1], -q[2], -q[3])
+
+
+def multiply_quaternions(q1: Quaternion, q2: Quaternion) -> ca.MX | ca.SX:
+    qw = q1[0] * q2[0] - q1[1] * q2[1] - q1[2] * q2[2] - q1[3] * q2[3]
+    qx = q1[0] * q2[1] + q1[1] * q2[0] + q1[2] * q2[3] - q1[3] * q2[2]
+    qy = q1[0] * q2[2] - q1[1] * q2[3] + q1[2] * q2[0] + q1[3] * q2[1]
+    qz = q1[0] * q2[3] + q1[1] * q2[2] - q1[2] * q2[1] + q1[3] * q2[0]
+    return ca.vertcat(qw, qx, qy, qz)
+
+
+def rotate_vector_by_quaternion(vec: Vec3, q: Quaternion) -> ca.MX | ca.SX:
+    p = ca.vertcat(0, vec)
+    q_conjugate = conjugate_quaternion(q)
+    rotated_vec = multiply_quaternions(multiply_quaternions(q, p), q_conjugate)
+    return rotated_vec[1:]

@@ -8,6 +8,8 @@ import numpy as np
 
 from dq_nmpc.type import Scalar, Vector
 
+__all__ = ["Quaternion"]
+
 
 @dataclasses.dataclass
 class Quaternion:
