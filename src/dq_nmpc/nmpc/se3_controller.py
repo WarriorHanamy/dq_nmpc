@@ -62,6 +62,7 @@ def se3_control(
     K_w: np.ndarray,
     mass: float,
     gravity: float = 9.80665,
+    target_vel: np.ndarray | None = None,
 ) -> tuple[float, float, float, float]:
     """Compute body-frame thrust and torques via SE(3) geometric control.
 
@@ -77,6 +78,7 @@ def se3_control(
     @param[in] K_w           Rate damping gains [Nm·s/rad]   shape (3,)
     @param[in] mass          Vehicle mass [kg]
     @param[in] gravity       Gravitational acceleration [m/s²]
+    @param[in] target_vel    Desired world ENU velocity [m/s] shape (3,)
     @return (thrust, tau_x, tau_y, tau_z) body FLU [N, Nm]
     """
     qw, qx, qy, qz = (
@@ -87,13 +89,19 @@ def se3_control(
     )
     R = quat_to_rotmat(qw, qx, qy, qz)
 
+    if target_vel is None:
+        target_vel = np.zeros(3, dtype=np.float64)
+    else:
+        target_vel = np.asarray(target_vel, dtype=np.float64).ravel()
+
     e_p = pos_world - target_pos
 
     v_world = R @ lin_vel_body
+    e_v = v_world - target_vel
 
     F_des = np.zeros(3, dtype=np.float64)
     for i in range(3):
-        F_des[i] = -K_p[i] * e_p[i] - K_v[i] * v_world[i]
+        F_des[i] = -K_p[i] * e_p[i] - K_v[i] * e_v[i]
     F_des[2] -= mass * (-gravity)  # compensate gravity: -m * g_z where g_z = -gravity
 
     thrust_raw = np.dot(F_des, R[:, 2])

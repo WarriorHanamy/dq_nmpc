@@ -7,7 +7,7 @@
 # K_R : attitude error gain on SO(3)   [Nm]
 # K_w : angular rate damping gain      [Nm·s/rad]
 
-K_p: [4.0, 4.0, 6.0]
-K_v: [3.0, 3.0, 4.0]
+K_p: [49.0, 49.0, 49.0]
+K_v: [14.0, 14.0, 14.0]
 K_R: [8.0, 8.0, 4.0]
 K_w: [1.0, 1.0, 0.5]

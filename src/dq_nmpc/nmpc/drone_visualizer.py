@@ -53,15 +53,23 @@ class DroneVisualizer:
         )
         rr.send_blueprint(blueprint, make_default=True)
 
-    def log_static_trajectory(self, traj5, num_samples: int = 200) -> None:
-        """Log the full reference trajectory path as a static line strip."""
-        duration = traj5.total_duration
-        dt = duration / max(num_samples - 1, 1)
-        points = []
-        for i in range(num_samples):
-            t = i * dt
-            p = np.array(traj5.get_pos(min(t, duration)), dtype=np.float64).ravel()
-            points.append((float(p[0]), float(p[1]), float(p[2])))
+    def log_static_trajectory(self, traj, num_samples: int = 200) -> None:
+        """Log the full reference trajectory path as a static line strip.
+
+        Supports minco Trajectory5 (has .get_pos(t), .total_duration)
+        and FlatnessTrajectory (has .ref_pos, .t).
+        """
+        if hasattr(traj, "ref_pos"):
+            pts = traj.ref_pos
+            points = [(float(p[0]), float(p[1]), float(p[2])) for p in pts]
+        else:
+            duration = traj.total_duration
+            dt = duration / max(num_samples - 1, 1)
+            points = []
+            for i in range(num_samples):
+                t = i * dt
+                p = np.array(traj.get_pos(min(t, duration)), dtype=np.float64).ravel()
+                points.append((float(p[0]), float(p[1]), float(p[2])))
         rr.log(
             "trajectory/path",
             rr.LineStrips3D([points], colors=[(128, 128, 128)]),

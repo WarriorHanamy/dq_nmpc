@@ -390,6 +390,82 @@ class ReferenceTrajectory(BaseModel):
         return np.column_stack([p.control_as_array() for p in self.points])
 
 
+class FlatnessTrajectory(BaseModel):
+    """Dense flatness-based reference trajectory from get_flatness_trajectory.
+
+    All arrays are (N,) or (N, D) with time-aligned row-major layout.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=False)
+
+    ref_pos: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
+    ref_vel: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
+    ref_acc: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
+    ref_jerk: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
+    ref_snap: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
+    ref_quat: np.ndarray = Field(default_factory=lambda: np.empty((0, 4)))
+    ref_omega: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
+    ref_omega_dot: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
+    ref_thrust: np.ndarray = Field(default_factory=lambda: np.empty(0))
+    ref_torque: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
+    ref_yaw: np.ndarray = Field(default_factory=lambda: np.empty(0))
+    ref_yaw_dot: np.ndarray = Field(default_factory=lambda: np.empty(0))
+    ref_yaw_ddot: np.ndarray = Field(default_factory=lambda: np.empty(0))
+    t: np.ndarray = Field(default_factory=lambda: np.empty(0))
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _coerce_ndarray(cls, v: object) -> np.ndarray:
+        if isinstance(v, list):
+            return np.asarray(v, dtype=np.float64)
+        return v
+
+    def interp_pos(self, t_query: float) -> np.ndarray:
+        """Interpolate position at a query time.
+
+        @param[in] t_query  Time [s]
+        @return (3,) ndarray [m]
+        """
+        return np.array(
+            [np.interp(t_query, self.t, self.ref_pos[:, i]) for i in range(3)],
+            dtype=np.float64,
+        )
+
+    def interp_yaw(self, t_query: float) -> float:
+        """Interpolate yaw angle at a query time.
+
+        @param[in] t_query  Time [s]
+        @return Yaw angle [rad]
+        """
+        return float(np.interp(t_query, self.t, self.ref_yaw))
+
+    def save_npz(self, path: str | Path) -> None:
+        """Save trajectory arrays to a compressed NPZ file."""
+        np.savez(
+            path,
+            ref_pos=self.ref_pos,
+            ref_vel=self.ref_vel,
+            ref_acc=self.ref_acc,
+            ref_jerk=self.ref_jerk,
+            ref_snap=self.ref_snap,
+            ref_quat=self.ref_quat,
+            ref_omega=self.ref_omega,
+            ref_omega_dot=self.ref_omega_dot,
+            ref_thrust=self.ref_thrust,
+            ref_torque=self.ref_torque,
+            ref_yaw=self.ref_yaw,
+            ref_yaw_dot=self.ref_yaw_dot,
+            ref_yaw_ddot=self.ref_yaw_ddot,
+            t=self.t,
+        )
+
+    @classmethod
+    def load_npz(cls, path: str | Path) -> FlatnessTrajectory:
+        """Load trajectory from a compressed NPZ file."""
+        data = np.load(path)
+        return cls(**{k: data[k] for k in data.files})
+
+
 class SHMConfig(BaseModel):
     """POSIX shared memory interface configuration."""
 

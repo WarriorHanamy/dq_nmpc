@@ -1,12 +1,12 @@
 """Flatness-based reference trajectory planner.
 
 Pipeline:
-  _circular_reference  →  _rotated_reference  →  _smooth_reference  →  compute_flatness_states
-  (flat outputs on       (expm 3D rotation)     (min-snap QP          (full flatness: pose,
-   a circular path)                               smoothing)            twist, force, torque)
+  _circular_reference  →  _rotated_reference  →  _smooth_reference  →  get_flatness_trajectory
+  (ref_pos on a          (expm 3D rotation)     (min-snap QP          (full flatness: pose,
+   circular path)                                smoothing)            twist, thrust, torque)
 
 Public API:
-  compute_flatness_states  —  the only function intended for external callers.
+  get_flatness_trajectory  —  the only function intended for external callers.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from dq_nmpc.math.polynomial import (
 )
 from dq_nmpc.schema import NMPCConfig
 
-__all__ = ["compute_flatness_states"]
+__all__ = ["get_flatness_trajectory"]
 
 
 def _skew_matrix(x: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -52,42 +52,42 @@ def _circular_reference(
 ]:
     """Flat outputs (position through snap) for a circular trajectory in the XY plane.
 
-    Returns 3xN arrays for position, velocity, acceleration, jerk, snap
-    and 1D arrays for yaw angle and its derivatives (all zero).
+    Returns 3xN arrays for ref_pos, ref_vel, ref_acc, ref_jerk, ref_snap
+    and 1D arrays for ref_yaw and its derivatives (all zero).
     """
     cos_wt = np.cos(angular_speed * t)
     sin_wt = np.sin(angular_speed * t)
 
-    xd = radius * cos_wt
-    yd = radius * sin_wt
-    zd = np.zeros_like(t)
+    ref_pos_x = radius * cos_wt
+    ref_pos_y = radius * sin_wt
+    ref_pos_z = np.zeros_like(t)
 
-    xd_p = -radius * angular_speed * sin_wt
-    yd_p = radius * angular_speed * cos_wt
-    zd_p = np.zeros_like(t)
+    ref_vel_x = -radius * angular_speed * sin_wt
+    ref_vel_y = radius * angular_speed * cos_wt
+    ref_vel_z = np.zeros_like(t)
 
-    xd_pp = -radius * angular_speed**2 * cos_wt
-    yd_pp = -radius * angular_speed**2 * sin_wt
-    zd_pp = np.zeros_like(t)
+    ref_acc_x = -radius * angular_speed**2 * cos_wt
+    ref_acc_y = -radius * angular_speed**2 * sin_wt
+    ref_acc_z = np.zeros_like(t)
 
-    xd_ppp = radius * angular_speed**3 * sin_wt
-    yd_ppp = -radius * angular_speed**3 * cos_wt
-    zd_ppp = np.zeros_like(t)
+    ref_jerk_x = radius * angular_speed**3 * sin_wt
+    ref_jerk_y = -radius * angular_speed**3 * cos_wt
+    ref_jerk_z = np.zeros_like(t)
 
-    xd_pppp = radius * angular_speed**4 * cos_wt
-    yd_pppp = radius * angular_speed**4 * sin_wt
-    zd_pppp = np.zeros_like(t)
+    ref_snap_x = radius * angular_speed**4 * cos_wt
+    ref_snap_y = radius * angular_speed**4 * sin_wt
+    ref_snap_z = np.zeros_like(t)
 
-    theta = np.zeros_like(t)
-    theta_p = np.zeros_like(t)
+    ref_yaw = np.zeros_like(t)
+    ref_yaw_dot = np.zeros_like(t)
 
-    hd = np.vstack((xd, yd, zd))
-    hd_p = np.vstack((xd_p, yd_p, zd_p))
-    hd_pp = np.vstack((xd_pp, yd_pp, zd_pp))
-    hd_ppp = np.vstack((xd_ppp, yd_ppp, zd_ppp))
-    hd_pppp = np.vstack((xd_pppp, yd_pppp, zd_pppp))
+    ref_pos = np.vstack((ref_pos_x, ref_pos_y, ref_pos_z))
+    ref_vel = np.vstack((ref_vel_x, ref_vel_y, ref_vel_z))
+    ref_acc = np.vstack((ref_acc_x, ref_acc_y, ref_acc_z))
+    ref_jerk = np.vstack((ref_jerk_x, ref_jerk_y, ref_jerk_z))
+    ref_snap = np.vstack((ref_snap_x, ref_snap_y, ref_snap_z))
 
-    return hd, theta, hd_p, theta_p, hd_pp, hd_ppp, hd_pppp, theta_p
+    return ref_pos, ref_yaw, ref_vel, ref_yaw_dot, ref_acc, ref_jerk, ref_snap, ref_yaw_dot
 
 
 def _rotated_reference(
@@ -110,18 +110,18 @@ def _rotated_reference(
     An offset [0, 0, 4] is added to the position so the trajectory hovers
     above the ground plane.
     """
-    p, theta, p_d, theta_d, p_dd, p_ddd, p_dddd, _theta_dd = _circular_reference(
-        t, radius, angular_speed
+    ref_pos, ref_yaw, ref_vel, ref_yaw_dot, ref_acc, ref_jerk, ref_snap, _ref_yaw_ddotot = (
+        _circular_reference(t, radius, angular_speed)
     )
     a = np.pi / 2
     b = 0.05
 
-    N = p_d.shape[1]
-    r = np.zeros((3, N), dtype=np.float64)
-    r_d = np.zeros((3, N), dtype=np.float64)
-    r_dd = np.zeros((3, N), dtype=np.float64)
-    r_ddd = np.zeros((3, N), dtype=np.float64)
-    r_dddd = np.zeros((3, N), dtype=np.float64)
+    N = ref_vel.shape[1]
+    rot_pos = np.zeros((3, N), dtype=np.float64)
+    rot_vel = np.zeros((3, N), dtype=np.float64)
+    rot_acc = np.zeros((3, N), dtype=np.float64)
+    rot_jerk = np.zeros((3, N), dtype=np.float64)
+    rot_snap = np.zeros((3, N), dtype=np.float64)
 
     for k in range(N):
         w_k = np.array([a * np.sin(b * t[k]), 0.0, 0.0], dtype=np.float64)
@@ -140,43 +140,45 @@ def _rotated_reference(
         sw_ddd = _skew_matrix(w_ddd)
         sw_dddd = _skew_matrix(w_dddd)
 
-        pk = p[:, k]
-        r[:, k] = expm_w @ pk
-        r_d[:, k] = expm_w @ (p_d[:, k] + sw_d @ pk)
-        r_dd[:, k] = expm_w @ (sw_d2 @ pk + 2 * sw_d @ p_d[:, k] + p_dd[:, k] + sw_dd @ pk)
-        r_ddd[:, k] = expm_w @ (
-            p_ddd[:, k]
+        pk = ref_pos[:, k]
+        rot_pos[:, k] = expm_w @ pk
+        rot_vel[:, k] = expm_w @ (ref_vel[:, k] + sw_d @ pk)
+        rot_acc[:, k] = expm_w @ (
+            sw_d2 @ pk + 2 * sw_d @ ref_vel[:, k] + ref_acc[:, k] + sw_dd @ pk
+        )
+        rot_jerk[:, k] = expm_w @ (
+            ref_jerk[:, k]
             + sw_ddd @ pk
-            + 3 * sw_dd @ p_d[:, k]
-            + 3 * sw_d @ p_dd[:, k]
+            + 3 * sw_dd @ ref_vel[:, k]
+            + 3 * sw_d @ ref_acc[:, k]
             + sw_d3 @ pk
-            + 3 * sw_d2 @ p_d[:, k]
+            + 3 * sw_d2 @ ref_vel[:, k]
             + 3 * sw_d @ sw_dd @ pk
         )
-        r_dddd[:, k] = expm_w @ (
-            p_dddd[:, k]
+        rot_snap[:, k] = expm_w @ (
+            ref_snap[:, k]
             + sw_dddd @ pk
-            + 4 * sw_ddd @ p_d[:, k]
-            + 6 * sw_dd @ p_dd[:, k]
-            + 4 * sw_d @ p_ddd[:, k]
+            + 4 * sw_ddd @ ref_vel[:, k]
+            + 6 * sw_dd @ ref_acc[:, k]
+            + 4 * sw_d @ ref_jerk[:, k]
             + sw_d4 @ pk
             + 3 * sw_dd2 @ pk
-            + 4 * sw_d3 @ p_d[:, k]
-            + 6 * sw_d2 @ p_dd[:, k]
+            + 4 * sw_d3 @ ref_vel[:, k]
+            + 6 * sw_d2 @ ref_acc[:, k]
             + 6 * sw_d2 @ sw_dd @ pk
             + 4 * sw_d @ sw_ddd @ pk
-            + 12 * sw_d @ sw_dd @ p_d[:, k]
+            + 12 * sw_d @ sw_dd @ ref_vel[:, k]
         )
 
-    h0 = np.vstack(
+    z_offset = np.vstack(
         (
             np.zeros_like(t),
             np.zeros_like(t),
             4.0 * np.ones_like(t),
         )
     )
-    r += h0
-    return r, r_d, r_dd, r_ddd, r_dddd, theta, theta_d, _theta_dd
+    rot_pos += z_offset
+    return rot_pos, rot_vel, rot_acc, rot_jerk, rot_snap, ref_yaw, ref_yaw_dot, _ref_yaw_ddotot
 
 
 # ---------------------------------------------------------------------------
@@ -284,8 +286,8 @@ def _build_constraint_matrix(
 
 def _build_constraint_rhs(
     waypoints: NDArray[np.float64],
-    h_init: NDArray[np.float64],
-    h_final: NDArray[np.float64],
+    pva_init: NDArray[np.float64],
+    pva_final: NDArray[np.float64],
 ) -> NDArray[np.float64]:
     """Assemble the RHS vector for QP equality constraints."""
     b_1 = np.array([waypoints[0], 0, 0, 0, 0], dtype=np.float64)
@@ -295,8 +297,8 @@ def _build_constraint_rhs(
     b_5 = np.array([waypoints[4], 0, 0, 0, 0], dtype=np.float64)
     b_6 = np.array([waypoints[1], waypoints[2], waypoints[3]], dtype=np.float64)
 
-    b_first = np.array([h_init[1], h_init[2], h_init[3], h_init[4]], dtype=np.float64)
-    b_second = np.array([h_final[1], h_final[2], h_final[3], h_final[4]], dtype=np.float64)
+    b_first = np.array([pva_init[1], pva_init[2], pva_init[3], pva_init[4]], dtype=np.float64)
+    b_second = np.array([pva_final[1], pva_final[2], pva_final[3], pva_final[4]], dtype=np.float64)
     b_third = b_second
     b_fourth = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float64)
 
@@ -350,15 +352,15 @@ def _build_hessian_matrix(
 def _solve_minimum_snap_qp(
     segment_durations: NDArray[np.float64],
     waypoints: NDArray[np.float64],
-    h_init: NDArray[np.float64],
-    h_final: NDArray[np.float64],
+    pva_init: NDArray[np.float64],
+    pva_final: NDArray[np.float64],
 ) -> NDArray[np.float64]:
     """Solve the equality-constrained minimum-snap QP via OSQP.
 
     Returns the stacked polynomial coefficient vector for all 4 segments.
     """
     A_mat = _build_constraint_matrix(segment_durations)
-    b_vec = _build_constraint_rhs(waypoints, h_init, h_final)
+    b_vec = _build_constraint_rhs(waypoints, pva_init, pva_final)
     P = sparse.csc_matrix(_build_hessian_matrix(segment_durations))
     q = np.zeros(A_mat.shape[1])
 
@@ -393,23 +395,23 @@ def _smooth_reference(
     """Generate a smooth 3D trajectory by stitching a QP-smoothed polynomial to
     the rotated reference, minimising snap across four segments.
 
-    Returns h, h_d, h_dd, h_ddd, h_dddd, theta, theta_d, theta_dd, t_vec.
+    Returns ref_pos, ref_vel, ref_acc, ref_jerk, ref_snap, ref_yaw, ref_yaw_dot, ref_yaw_ddot, t_vec.
     """
     initial_pos = initial_pos.reshape((3, 1))
     traj_flight_time = np.array([[t_initial, t_trajectory, t_final, t_final]], dtype=np.float64)
 
-    r_init, r_d_init, r_dd_init, r_ddd_init, r_dddd_init, _, _, _ = _rotated_reference(
+    pos_init, vel_init, acc_init, jerk_init, snap_init, _, _, _ = _rotated_reference(
         traj_flight_time[:, 0], radius, angular_speed
     )
-    h_init = np.hstack((r_init, r_d_init, r_dd_init, r_ddd_init, r_dddd_init))
+    pva_init = np.hstack((pos_init, vel_init, acc_init, jerk_init, snap_init))
 
-    r_final, r_d_final, r_dd_final, r_ddd_final, r_dddd_final, _, _, _ = _rotated_reference(
+    pos_final, vel_final, acc_final, jerk_final, snap_final, _, _, _ = _rotated_reference(
         traj_flight_time[:, 0] + traj_flight_time[:, 1], radius, angular_speed
     )
-    h_final = np.hstack((r_final, r_d_final, r_dd_final, r_ddd_final, r_dddd_final))
+    pva_final = np.hstack((pos_final, vel_final, acc_final, jerk_final, snap_final))
 
-    waypoints_1 = np.hstack((initial_pos, r_init, r_final, initial_pos, initial_pos))
-    traj_size = waypoints_1.shape[1] - 1
+    waypoints = np.hstack((initial_pos, pos_init, pos_final, initial_pos, initial_pos))
+    traj_size = waypoints.shape[1] - 1
     number_points = 1.0 / sample_time
     number_polynomial = 9
     number_coeff = number_polynomial + 1
@@ -419,23 +421,41 @@ def _smooth_reference(
         traj_flight_time[0, 1] + traj_flight_time[0, 0],
         sample_time,
     )
-    r, r_d, r_dd, r_ddd, r_dddd, _, _, _ = _rotated_reference(
+    rot_pos, rot_vel, rot_acc, rot_jerk, rot_snap, _, _, _ = _rotated_reference(
         t_trajectory_values, radius, angular_speed
     )
 
     coeff_x = _solve_minimum_snap_qp(
-        traj_flight_time[0, :], waypoints_1[0, :], h_init[0, :], h_final[0, :]
+        traj_flight_time[0, :], waypoints[0, :], pva_init[0, :], pva_final[0, :]
     ).reshape(traj_size, number_coeff)
     coeff_y = _solve_minimum_snap_qp(
-        traj_flight_time[0, :], waypoints_1[1, :], h_init[1, :], h_final[1, :]
+        traj_flight_time[0, :], waypoints[1, :], pva_init[1, :], pva_final[1, :]
     ).reshape(traj_size, number_coeff)
     coeff_z = _solve_minimum_snap_qp(
-        traj_flight_time[0, :], waypoints_1[2, :], h_init[2, :], h_final[2, :]
+        traj_flight_time[0, :], waypoints[2, :], pva_init[2, :], pva_final[2, :]
     ).reshape(traj_size, number_coeff)
 
-    pos_x, vel_x, acc_x, jerk_x, snap_x = [], [], [], [], []
-    pos_y, vel_y, acc_y, jerk_y, snap_y = [], [], [], [], []
-    pos_z, vel_z, acc_z, jerk_z, snap_z = [], [], [], [], []
+    ref_pos_x_list, ref_vel_x_list, ref_acc_x_list, ref_jerk_x_list, ref_snap_x_list = (
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
+    ref_pos_y_list, ref_vel_y_list, ref_acc_y_list, ref_jerk_y_list, ref_snap_y_list = (
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
+    ref_pos_z_list, ref_vel_z_list, ref_acc_z_list, ref_jerk_z_list, ref_snap_z_list = (
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
 
     for k in range(traj_size):
         plot_time = traj_flight_time[0, k] * number_points
@@ -443,86 +463,86 @@ def _smooth_reference(
         if k != 1:
             for j in range(int(plot_time)):
                 t_j = j * time_step
-                pos_x.append(np.dot(coeff_x[k, :], position_time(t_j))[0])
-                vel_x.append(np.dot(coeff_x[k, :], velocity_time(t_j))[0])
-                acc_x.append(np.dot(coeff_x[k, :], acceleration_time(t_j))[0])
-                jerk_x.append(np.dot(coeff_x[k, :], jerk_time(t_j))[0])
-                snap_x.append(np.dot(coeff_x[k, :], snap_time(t_j))[0])
+                ref_pos_x_list.append(np.dot(coeff_x[k, :], position_time(t_j))[0])
+                ref_vel_x_list.append(np.dot(coeff_x[k, :], velocity_time(t_j))[0])
+                ref_acc_x_list.append(np.dot(coeff_x[k, :], acceleration_time(t_j))[0])
+                ref_jerk_x_list.append(np.dot(coeff_x[k, :], jerk_time(t_j))[0])
+                ref_snap_x_list.append(np.dot(coeff_x[k, :], snap_time(t_j))[0])
 
-                pos_y.append(np.dot(coeff_y[k, :], position_time(t_j))[0])
-                vel_y.append(np.dot(coeff_y[k, :], velocity_time(t_j))[0])
-                acc_y.append(np.dot(coeff_y[k, :], acceleration_time(t_j))[0])
-                jerk_y.append(np.dot(coeff_y[k, :], jerk_time(t_j))[0])
-                snap_y.append(np.dot(coeff_y[k, :], snap_time(t_j))[0])
+                ref_pos_y_list.append(np.dot(coeff_y[k, :], position_time(t_j))[0])
+                ref_vel_y_list.append(np.dot(coeff_y[k, :], velocity_time(t_j))[0])
+                ref_acc_y_list.append(np.dot(coeff_y[k, :], acceleration_time(t_j))[0])
+                ref_jerk_y_list.append(np.dot(coeff_y[k, :], jerk_time(t_j))[0])
+                ref_snap_y_list.append(np.dot(coeff_y[k, :], snap_time(t_j))[0])
 
-                pos_z.append(np.dot(coeff_z[k, :], position_time(t_j))[0])
-                vel_z.append(np.dot(coeff_z[k, :], velocity_time(t_j))[0])
-                acc_z.append(np.dot(coeff_z[k, :], acceleration_time(t_j))[0])
-                jerk_z.append(np.dot(coeff_z[k, :], jerk_time(t_j))[0])
-                snap_z.append(np.dot(coeff_z[k, :], snap_time(t_j))[0])
+                ref_pos_z_list.append(np.dot(coeff_z[k, :], position_time(t_j))[0])
+                ref_vel_z_list.append(np.dot(coeff_z[k, :], velocity_time(t_j))[0])
+                ref_acc_z_list.append(np.dot(coeff_z[k, :], acceleration_time(t_j))[0])
+                ref_jerk_z_list.append(np.dot(coeff_z[k, :], jerk_time(t_j))[0])
+                ref_snap_z_list.append(np.dot(coeff_z[k, :], snap_time(t_j))[0])
         else:
             for j in range(t_trajectory_values.shape[0]):
-                pos_x.append(r[0, j])
-                vel_x.append(r_d[0, j])
-                acc_x.append(r_dd[0, j])
-                jerk_x.append(r_ddd[0, j])
-                snap_x.append(r_dddd[0, j])
+                ref_pos_x_list.append(rot_pos[0, j])
+                ref_vel_x_list.append(rot_vel[0, j])
+                ref_acc_x_list.append(rot_acc[0, j])
+                ref_jerk_x_list.append(rot_jerk[0, j])
+                ref_snap_x_list.append(rot_snap[0, j])
 
-                pos_y.append(r[1, j])
-                vel_y.append(r_d[1, j])
-                acc_y.append(r_dd[1, j])
-                jerk_y.append(r_ddd[1, j])
-                snap_y.append(r_dddd[1, j])
+                ref_pos_y_list.append(rot_pos[1, j])
+                ref_vel_y_list.append(rot_vel[1, j])
+                ref_acc_y_list.append(rot_acc[1, j])
+                ref_jerk_y_list.append(rot_jerk[1, j])
+                ref_snap_y_list.append(rot_snap[1, j])
 
-                pos_z.append(r[2, j])
-                vel_z.append(r_d[2, j])
-                acc_z.append(r_dd[2, j])
-                jerk_z.append(r_ddd[2, j])
-                snap_z.append(r_dddd[2, j])
+                ref_pos_z_list.append(rot_pos[2, j])
+                ref_vel_z_list.append(rot_vel[2, j])
+                ref_acc_z_list.append(rot_acc[2, j])
+                ref_jerk_z_list.append(rot_jerk[2, j])
+                ref_snap_z_list.append(rot_snap[2, j])
 
-    h = np.vstack(
+    ref_pos = np.vstack(
         [
-            np.array(pos_x),
-            np.array(pos_y),
-            np.array(pos_z),
+            np.array(ref_pos_x_list),
+            np.array(ref_pos_y_list),
+            np.array(ref_pos_z_list),
         ]
     )
-    h_d = np.vstack(
+    ref_vel = np.vstack(
         [
-            np.array(vel_x),
-            np.array(vel_y),
-            np.array(vel_z),
+            np.array(ref_vel_x_list),
+            np.array(ref_vel_y_list),
+            np.array(ref_vel_z_list),
         ]
     )
-    h_dd = np.vstack(
+    ref_acc = np.vstack(
         [
-            np.array(acc_x),
-            np.array(acc_y),
-            np.array(acc_z),
+            np.array(ref_acc_x_list),
+            np.array(ref_acc_y_list),
+            np.array(ref_acc_z_list),
         ]
     )
-    h_ddd = np.vstack(
+    ref_jerk = np.vstack(
         [
-            np.array(jerk_x),
-            np.array(jerk_y),
-            np.array(jerk_z),
+            np.array(ref_jerk_x_list),
+            np.array(ref_jerk_y_list),
+            np.array(ref_jerk_z_list),
         ]
     )
-    h_dddd = np.vstack(
+    ref_snap = np.vstack(
         [
-            np.array(snap_x),
-            np.array(snap_y),
-            np.array(snap_z),
+            np.array(ref_snap_x_list),
+            np.array(ref_snap_y_list),
+            np.array(ref_snap_z_list),
         ]
     )
 
-    N = h.shape[1]
+    N = ref_pos.shape[1]
     t_vec = np.arange(0, N * sample_time, sample_time)
-    theta = np.zeros(N)
-    theta_d = np.zeros(N)
-    theta_dd = np.zeros(N)
+    ref_yaw = np.zeros(N)
+    ref_yaw_dot = np.zeros(N)
+    ref_yaw_ddot = np.zeros(N)
 
-    return h, h_d, h_dd, h_ddd, h_dddd, theta, theta_d, theta_dd, t_vec
+    return ref_pos, ref_vel, ref_acc, ref_jerk, ref_snap, ref_yaw, ref_yaw_dot, ref_yaw_ddot, t_vec
 
 
 # ---------------------------------------------------------------------------
@@ -530,7 +550,7 @@ def _smooth_reference(
 # ---------------------------------------------------------------------------
 
 
-def compute_flatness_states(
+def get_flatness_trajectory(
     params: NMPCConfig,
     initial_pos: NDArray[np.float64],
     t_initial: float,
@@ -551,12 +571,15 @@ def compute_flatness_states(
     NDArray[np.float64],
     NDArray[np.float64],
     NDArray[np.float64],
+    NDArray[np.float64],
+    NDArray[np.float64],
+    NDArray[np.float64],
 ]:
     """Compute the full flatness-based reference trajectory for NMPC tracking.
 
-    Derives position (3xN), velocity, acceleration, jerk, snap, orientation
-    quaternion (4xN), body angular velocity (3xN), body angular acceleration
-    (3xN), thrust (1xN), body torque (3xN), and time vector (N,).
+    Derives ref_pos (N,3), ref_vel, ref_acc, ref_jerk, ref_snap (N,3 each),
+    ref_quat (N,4), ref_omega (N,3), ref_omega_dot (N,3), ref_thrust (N,),
+    ref_torque (N,3), ref_yaw (N,), ref_yaw_dot (N,), ref_yaw_ddot (N,), and t (N,).
 
     Parameters
     ----------
@@ -579,26 +602,32 @@ def compute_flatness_states(
 
     Returns
     -------
-    hd : (3, N) ndarray
+    ref_pos : (N, 3) ndarray
         Desired position [m].
-    hd_d : (3, N) ndarray
+    ref_vel : (N, 3) ndarray
         Desired world-frame velocity [m/s].
-    hd_dd : (3, N) ndarray
+    ref_acc : (N, 3) ndarray
         Desired world-frame acceleration [m/s²].
-    hd_ddd : (3, N) ndarray
+    ref_jerk : (N, 3) ndarray
         Desired world-frame jerk [m/s³].
-    hd_dddd : (3, N) ndarray
+    ref_snap : (N, 3) ndarray
         Desired world-frame snap [m/s⁴].
-    qd : (4, N) ndarray
+    ref_quat : (N, 4) ndarray
         Desired orientation quaternion [qw, qx, qy, qz].
-    w_d : (3, N) ndarray
+    ref_omega : (N, 3) ndarray
         Desired body-frame angular velocity [rad/s].
-    w_d_d : (3, N) ndarray
+    ref_omega_dot : (N, 3) ndarray
         Desired body-frame angular acceleration [rad/s²].
-    f_d : (1, N) ndarray
-        Desired body-frame thrust force [N].
-    M_d : (3, N) ndarray
+    ref_thrust : (N,) ndarray
+        Desired body-frame thrust [N].
+    ref_torque : (N, 3) ndarray
         Desired body-frame torque [N·m].
+    ref_yaw : (N,) ndarray
+        Desired yaw angle [rad].
+    ref_yaw_dot : (N,) ndarray
+        Desired yaw rate [rad/s].
+    ref_yaw_ddot : (N,) ndarray
+        Desired yaw acceleration [rad/s²].
     t : (N,) ndarray
         Time vector [s].
     """
@@ -611,17 +640,19 @@ def compute_flatness_states(
 
     Zw = np.array([[0.0], [0.0], [1.0]])
 
-    hd, hd_d, hd_dd, hd_ddd, hd_dddd, theta, theta_d, theta_dd, t = _smooth_reference(
-        t_initial,
-        t_trajectory,
-        t_final,
-        sample_time,
-        initial_pos,
-        radius,
-        angular_speed,
+    ref_pos, ref_vel, ref_acc, ref_jerk, ref_snap, ref_yaw, ref_yaw_dot, ref_yaw_ddot, t = (
+        _smooth_reference(
+            t_initial,
+            t_trajectory,
+            t_final,
+            sample_time,
+            initial_pos,
+            radius,
+            angular_speed,
+        )
     )
 
-    N = hd.shape[1]
+    N = ref_pos.shape[1]
     alpha = np.zeros((3, N), dtype=np.float64)
     beta = np.zeros((3, N), dtype=np.float64)
     Yc = np.zeros((3, N), dtype=np.float64)
@@ -630,19 +661,19 @@ def compute_flatness_states(
     Yb = np.zeros((3, N), dtype=np.float64)
     Xb = np.zeros((3, N), dtype=np.float64)
     Zb = np.zeros((3, N), dtype=np.float64)
-    q = np.zeros((4, N), dtype=np.float64)
-    f = np.zeros((1, N), dtype=np.float64)
+    ref_quat = np.zeros((4, N), dtype=np.float64)
+    ref_thrust = np.zeros((1, N), dtype=np.float64)
     f_p = np.zeros((1, N), dtype=np.float64)
-    w = np.zeros((3, N), dtype=np.float64)
-    w_p = np.zeros((3, N), dtype=np.float64)
-    M = np.zeros((3, N), dtype=np.float64)
+    ref_omega = np.zeros((3, N), dtype=np.float64)
+    ref_omega_dot = np.zeros((3, N), dtype=np.float64)
+    ref_torque = np.zeros((3, N), dtype=np.float64)
 
     for k in range(N):
-        alpha[:, k] = m * hd_dd[:, k] + m * g * Zw[:, 0]
-        beta[:, k] = m * hd_dd[:, k] + m * g * Zw[:, 0]
+        alpha[:, k] = m * ref_acc[:, k] + m * g * Zw[:, 0]
+        beta[:, k] = m * ref_acc[:, k] + m * g * Zw[:, 0]
 
-        Yc[:, k] = np.array([-np.sin(theta[k]), np.cos(theta[k]), 0.0])
-        Xc[:, k] = np.array([np.cos(theta[k]), np.sin(theta[k]), 0.0])
+        Yc[:, k] = np.array([-np.sin(ref_yaw[k]), np.cos(ref_yaw[k]), 0.0])
+        Xc[:, k] = np.array([np.cos(ref_yaw[k]), np.sin(ref_yaw[k]), 0.0])
         Zc[:, k] = np.array([0.0, 0.0, 1.0])
 
         Xb[:, k] = np.cross(Yc[:, k], alpha[:, k])
@@ -660,21 +691,21 @@ def compute_flatness_states(
         )
         r_d = R.from_matrix(R_d)
         quad_d_aux = r_d.as_quat()
-        q[:, k] = np.array([quad_d_aux[3], quad_d_aux[0], quad_d_aux[1], quad_d_aux[2]])
+        ref_quat[:, k] = np.array([quad_d_aux[3], quad_d_aux[0], quad_d_aux[1], quad_d_aux[2]])
         if k > 0:
-            if np.dot(q[:, k], q[:, k - 1]) < 0:
-                q[:, k] = -q[:, k]
-        q[:, k] /= np.linalg.norm(q[:, k])
+            if np.dot(ref_quat[:, k], ref_quat[:, k - 1]) < 0:
+                ref_quat[:, k] = -ref_quat[:, k]
+        ref_quat[:, k] /= np.linalg.norm(ref_quat[:, k])
 
-        f[:, k] = np.dot(Zb[:, k], m * hd_dd[:, k] + m * g * Zw[:, 0])
+        ref_thrust[0, k] = np.dot(Zb[:, k], m * ref_acc[:, k] + m * g * Zw[:, 0])
 
-        b1 = m * np.dot(Xb[:, k], hd_ddd[:, k])
-        b2 = -m * np.dot(Yb[:, k], hd_ddd[:, k])
-        b3 = theta_d[k] * np.dot(Xc[:, k], Xb[:, k])
+        b1 = m * np.dot(Xb[:, k], ref_jerk[:, k])
+        b2 = -m * np.dot(Yb[:, k], ref_jerk[:, k])
+        b3 = ref_yaw_dot[k] * np.dot(Xc[:, k], Xb[:, k])
         b = np.array([[b1], [b2], [b3]], dtype=np.float64)
 
-        a11, a12, a13 = 0.0, float(f[:, k]), 0.0
-        a21, a22, a23 = float(f[:, k]), 0.0, 0.0
+        a11, a12, a13 = 0.0, float(ref_thrust[0, k]), 0.0
+        a21, a22, a23 = float(ref_thrust[0, k]), 0.0, 0.0
         a31 = 0.0
         a32 = float(-np.dot(Yc[:, k], Zb[:, k]))
         a33 = float(np.linalg.norm(np.cross(Yc[:, k], Zb[:, k])))
@@ -682,24 +713,39 @@ def compute_flatness_states(
         A_mat = np.array([[a11, a12, a13], [a21, a22, a23], [a31, a32, a33]], dtype=np.float64)
         A_inv = np.linalg.inv(A_mat)
 
-        w[:, k] = (A_inv @ b)[:, 0]
+        ref_omega[:, k] = (A_inv @ b)[:, 0]
 
-        f_p[:, k] = m * np.dot(Zb[:, k], hd_ddd[:, k])
+        f_p[0, k] = m * np.dot(Zb[:, k], ref_jerk[:, k])
 
-        wx, wy, wz = w[0, k], w[1, k], w[2, k]
-        chi_1 = theta_dd[k] * np.dot(Xc[:, k], Xb[:, k])
-        chi_2 = -2 * theta_d[k] * wy * np.dot(Xc[:, k], Zb[:, k])
+        wx, wy, wz = ref_omega[0, k], ref_omega[1, k], ref_omega[2, k]
+        chi_1 = ref_yaw_ddot[k] * np.dot(Xc[:, k], Xb[:, k])
+        chi_2 = -2 * ref_yaw_dot[k] * wy * np.dot(Xc[:, k], Zb[:, k])
         chi_3 = -wy * wx * np.dot(Yc[:, k], Yb[:, k])
-        chi_4 = 2 * theta_d[k] * wz * np.dot(Xc[:, k], Yb[:, k])
+        chi_4 = 2 * ref_yaw_dot[k] * wz * np.dot(Xc[:, k], Yb[:, k])
         chi_5 = -wz * wx * np.dot(Yc[:, k], Zb[:, k])
         chi = chi_1 + chi_2 + chi_3 + chi_4 + chi_5
 
-        B1 = m * np.dot(Xb[:, k], hd_dddd[:, k]) - f[:, k] * wx * wz - 2 * f_p[:, k] * wy
-        B2 = -m * np.dot(Yb[:, k], hd_dddd[:, k]) - 2 * f_p[:, k] * wx + f[:, k] * wy * wz
+        B1 = m * np.dot(Xb[:, k], ref_snap[:, k]) - ref_thrust[0, k] * wx * wz - 2 * f_p[0, k] * wy
+        B2 = -m * np.dot(Yb[:, k], ref_snap[:, k]) - 2 * f_p[0, k] * wx + ref_thrust[0, k] * wy * wz
         B3 = chi
         B = np.array([[B1], [B2], [B3]], dtype=np.float64)
 
-        w_p[:, k] = (A_inv @ B)[:, 0]
-        M[:, k] = J @ w_p[:, k] + np.cross(w[:, k], J @ w[:, k])
+        ref_omega_dot[:, k] = (A_inv @ B)[:, 0]
+        ref_torque[:, k] = J @ ref_omega_dot[:, k] + np.cross(ref_omega[:, k], J @ ref_omega[:, k])
 
-    return hd, hd_d, hd_dd, hd_ddd, hd_dddd, q, w, w_p, f, M, t
+    return (
+        ref_pos.T,
+        ref_vel.T,
+        ref_acc.T,
+        ref_jerk.T,
+        ref_snap.T,
+        ref_quat.T,
+        ref_omega.T,
+        ref_omega_dot.T,
+        ref_thrust.ravel(),
+        ref_torque.T,
+        ref_yaw,
+        ref_yaw_dot,
+        ref_yaw_ddot,
+        t,
+    )
