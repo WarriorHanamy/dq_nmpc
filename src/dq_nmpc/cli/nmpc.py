@@ -44,12 +44,18 @@ def main_run():
         return str(path)
 
     parser = argparse.ArgumentParser(description="DQ NMPC orchestrator")
-    parser.add_argument("config", help="Path to nmpc.yaml")
-    parser.add_argument("trajectory", help="Path to trajectory.npz")
+    parser.add_argument("config", nargs="?", default=_DEFAULT_NMPC, help="Path to nmpc.yaml")
+    parser.add_argument(
+        "trajectory", nargs="?", default=_DEFAULT_TRAJ, help="Path to trajectory.npz"
+    )
     parser.add_argument("--max-iter", type=int, default=0, help="Max NMPC iterations (0=unlimited)")
     parser.add_argument("--model", type=str, default=str(model_path()), help="Path to drone.xml")
+    parser.add_argument("--rerun", action="store_true", help="Spawn Rerun viewer")
     parser.add_argument(
-        "--se3-config", type=str, default=None, help="Path to se3.yaml (SE3 controller gains)"
+        "--se3-config",
+        type=str,
+        default=_DEFAULT_SE3,
+        help="Path to se3.yaml (SE3 controller gains)",
     )
     args = parser.parse_args()
 
@@ -57,12 +63,15 @@ def main_run():
         config_path=_resolve(args.config),
         trajectory_path=_resolve(args.trajectory),
         max_iter=args.max_iter,
-        se3_path=_resolve(args.se3_config) if args.se3_config else None,
+        se3_path=_resolve(args.se3_config),
         model_path=args.model,
+        rerun=args.rerun,
     )
 
 
-_DEFAULT_CONFIG = "src/dq_nmpc/config/mujoco/default/nmpc.yaml"
+_DEFAULT_NMPC = "src/dq_nmpc/config/mujoco/default/nmpc.yaml"
+_DEFAULT_SE3 = "src/dq_nmpc/config/mujoco/default/se3.yaml"
+_DEFAULT_TRAJ = "out/circle/trajectory.npz"
 
 
 def main_codegen():
@@ -70,6 +79,6 @@ def main_codegen():
     _setup_acados_env()
     from dq_nmpc.workflows.codegen import codegen
 
-    config_path = _DEFAULT_CONFIG if len(sys.argv) < 2 else sys.argv[1]
+    config_path = _DEFAULT_NMPC if len(sys.argv) < 2 else sys.argv[1]
     codegen(config_path)
     print("Code generation complete.")

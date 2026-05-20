@@ -26,6 +26,7 @@ def nmpc_loop(
     max_iter: int = 0,
     se3_path: str | Path | None = None,
     model_path: str | Path | None = None,
+    rerun: bool = False,
 ):
     """Run the full NMPC pipeline: build sim, launch core, control loop, cleanup.
 
@@ -59,6 +60,7 @@ def nmpc_loop(
             trajectory_path=trajectory_path,
             se3_config_path=se3_path,
             max_iter=max_iter,
+            rerun=rerun,
         )
 
     except KeyboardInterrupt:

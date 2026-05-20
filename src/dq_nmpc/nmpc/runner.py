@@ -43,6 +43,7 @@ def run_nmpc(
     trajectory_path: str | Path,
     se3_config_path: str | Path | None = None,
     max_iter: int = 0,
+    rerun: bool = False,
 ):
     if not SHM_AVAILABLE:
         raise RuntimeError("quadrotor_sim.shm not available; ensure quadrotor_sim is on PYTHONPATH")
@@ -68,7 +69,7 @@ def run_nmpc(
     )
 
     rrd_path = str(OutputPaths().se3_rrd)
-    viz = DroneVisualizer(rrd_path)
+    viz = DroneVisualizer(rrd_path, spawn=rerun)
     viz.log_static_trajectory(traj5)
     viz.log_static_markers(
         takeoff=(0.0, 0.0, 1.5),
@@ -131,18 +132,6 @@ def run_nmpc(
 
             position_error = float(np.linalg.norm(pos - target_pos))
 
-            viz.log_drone(pos, quat_wxyz, state_buf.time)
-            viz.log_error(position_error)
-
-            if position_error < convergence_threshold:
-                logger.info(
-                    "SE3 converged to %s: pos_error=%.4f m < %.3f m",
-                    target_label,
-                    position_error,
-                    convergence_threshold,
-                )
-                return True
-
             thrust, tau_x, tau_y, tau_z = se3_control(
                 pos,
                 quat_wxyz,
@@ -158,14 +147,32 @@ def run_nmpc(
                 gravity,
             )
 
+            viz.log_drone(
+                pos,
+                quat_wxyz,
+                state_buf.time,
+                error=position_error,
+                thrust=thrust,
+                tau_x=tau_x,
+                tau_y=tau_y,
+                tau_z=tau_z,
+            )
+
+            if position_error < convergence_threshold:
+                logger.info(
+                    "SE3 converged to %s: pos_error=%.4f m < %.3f m",
+                    target_label,
+                    position_error,
+                    convergence_threshold,
+                )
+                return True
+
             ctrl_writer.write_control(
                 thrust=thrust,
                 torque_x=tau_x,
                 torque_y=tau_y,
                 torque_z=tau_z,
             )
-
-            viz.log_control(thrust, tau_x, tau_y, tau_z)
 
             now_ns = time.monotonic_ns()
             if now_ns < next_wake:

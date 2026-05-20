@@ -31,6 +31,9 @@ install/
 .DS_Store
 Thumbs.db
 
+# 
+MUJOCO*
+
 # Generated artifacts
 out/
 trajectory.csv
