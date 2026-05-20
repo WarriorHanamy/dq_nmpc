@@ -1,7 +1,7 @@
 """SHM-based NMPC runtime loop.
 
-Reads quadrotor state from /dev/shm/quadrotor_sim/state, solves the acados OCP,
-writes control to /dev/shm/quadrotor_sim/ctrl.
+Phase 1: SE(3) geometric controller converges to the first trajectory point.
+Phase 2: Transition to NMPC trajectory tracking.
 """
 
 from __future__ import annotations
@@ -12,13 +12,10 @@ import time
 from pathlib import Path
 
 import numpy as np
-from minco.flatness_cache import CachedFlatness
 
-from dq_nmpc.math.dq_functions import dualquat_from_pose_casadi
 from dq_nmpc.minco_trajectory.loader import load_trajectory_npz
-from dq_nmpc.nmpc.dynamics import make_body_velocity_from_twist
-from dq_nmpc.nmpc.ocp_setup import solver
-from dq_nmpc.schema import NMPCConfig
+from dq_nmpc.nmpc.se3_controller import se3_control
+from dq_nmpc.schema import NMPCConfig, Se3Config
 
 try:
     from quadrotor_sim.shm import (
@@ -36,14 +33,11 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# TODO, change to more acceessible state
-dualquat_from_pose = dualquat_from_pose_casadi()
-dual_twist = make_body_velocity_from_twist()
-
 
 def run_nmpc(
     config_path: str | Path,
     trajectory_path: str | Path,
+    se3_config_path: str | Path | None = None,
     flag_build: bool = True,
     max_iter: int = 0,
 ):
@@ -53,27 +47,22 @@ def run_nmpc(
     config = NMPCConfig.from_yaml(config_path)
     params = config.to_params_dict()
 
-    Jxx, Jyy, Jzz = params["ixx"], params["iyy"], params["izz"]
-    J = np.array([[Jxx, 0.0, 0.0], [0.0, Jyy, 0.0], [0.0, 0.0, Jzz]])
+    if se3_config_path is not None:
+        se3_config = Se3Config.from_yaml(se3_config_path)
+    else:
+        se3_config = Se3Config()
 
-    Q_nmpc = np.array(params["nmpc"]["Q"])
-    Q_e_nmpc = np.array(params["nmpc"]["Q_e"])
-    R_nmpc = np.array(params["nmpc"]["R"])
-
-    N_prediction = params["nmpc"]["horizon_steps"]
+    mass = params["mass"]
+    gravity = params["gravity"]
     ts = params["nmpc"]["ts"]
 
-    acados_ocp_solver, ocp = solver(params, flag_build)
-
-    Tsim = params["nmpc"]["horizon_time"] / N_prediction
-    logger.info(
-        "OCP shooting interval Tsim = horizon_time/N = %.4f s (control ts = %.4f s)", Tsim, ts
-    )
-
     traj5 = load_trajectory_npz(trajectory_path)
-    traj_duration = traj5.total_duration
-    flatness = CachedFlatness(mass=params["mass"], gravity=params["gravity"])
-    logger.info("Trajectory loaded: duration=%.2f s, %d pieces", traj_duration, len(traj5))
+    logger.info("Trajectory loaded: duration=%.2f s, %d pieces", traj5.total_duration, len(traj5))
+
+    first_pos = np.array(traj5.get_pos(0.0), dtype=np.float64).ravel()
+    logger.info(
+        "First trajectory point: (%.3f, %.3f, %.3f)", first_pos[0], first_pos[1], first_pos[2]
+    )
 
     state_reader = ShmReader(SHM_STATE_FILE, QuadrotorStateC, 192)
     ctrl_writer = ShmWriter(SHM_CTRL_FILE, QuadrotorControlC, 64)
@@ -97,49 +86,23 @@ def run_nmpc(
     except FileNotFoundError:
         ctrl_writer.create()
 
-    logger.info(
-        "NMPC runner started (ts=%.3f s, Tsim=%.3f s, horizon=%d steps)", ts, Tsim, N_prediction
-    )
+    K_p = np.array(se3_config.K_p, dtype=np.float64)
+    K_v = np.array(se3_config.K_v, dtype=np.float64)
+    K_R = np.array(se3_config.K_R, dtype=np.float64)
+    K_w = np.array(se3_config.K_w, dtype=np.float64)
+    convergence_threshold = 0.05
 
     dt_ns = int(ts * 1e9)
     next_wake = time.monotonic_ns()
-    iteration = 0
 
-    try:
+    def _se3_converge(target_pos: np.ndarray, label: str) -> bool:
+        """Run SE3 control loop until convergence or KeyboardInterrupt.
+        Returns True if converged, False if interrupted."""
+        nonlocal next_wake
+        logger.info(
+            "SE3 → %s (%.2f, %.2f, %.2f)", label, target_pos[0], target_pos[1], target_pos[2]
+        )
         while True:
-            if max_iter > 0 and iteration >= max_iter:
-                break
-
-            t_now = iteration * ts
-
-            X_d = np.zeros((14, N_prediction), dtype=np.float64)
-            u_d = np.zeros((4, N_prediction), dtype=np.float64)
-
-            for k in range(N_prediction):
-                t_ref = min(t_now + k * Tsim, traj_duration)
-                pos = np.array(traj5.get_pos(t_ref), dtype=np.float64).ravel()
-                vel = np.array(traj5.get_vel(t_ref), dtype=np.float64).ravel()
-                acc = np.array(traj5.get_acc(t_ref), dtype=np.float64).ravel()
-                jer = np.array(traj5.get_jer(t_ref), dtype=np.float64).ravel()
-
-                yaw = np.arctan2(vel[1], vel[0]) if np.linalg.norm(vel[:2]) > 0.01 else 0.0
-                thrust_val, quat, body_rates = flatness.forward(vel, acc, jer, yaw, 0.0)
-
-                dual_d = dualquat_from_pose(
-                    quat[0], quat[1], quat[2], quat[3], pos[0], pos[1], pos[2]
-                )
-                angular_linear_d = np.array(
-                    [body_rates[0], body_rates[1], body_rates[2], vel[0], vel[1], vel[2]]
-                )
-                dual_twist_d = dual_twist(angular_linear_d, dual_d)
-
-                X_d[0:8, k] = np.array(dual_d).ravel()
-                X_d[8:14, k] = np.array(dual_twist_d).ravel()
-
-                u_d[0, k] = float(thrust_val[0])
-                w_dot = np.array([0.0, 0.0, 0.0])
-                u_d[1:4, k] = J @ w_dot + np.cross(body_rates, J @ body_rates)
-
             while not state_reader.read(state_buf):
                 time.sleep(0.0001)
 
@@ -148,39 +111,37 @@ def run_nmpc(
             lin_vel_body = np.array(state_buf.linear_velocity[:], dtype=np.float64)
             ang_vel_body = np.array(state_buf.angular_velocity[:], dtype=np.float64)
 
-            qw, qx, qy, qz = quat_wxyz
-            dual_state = dualquat_from_pose(qw, qx, qy, qz, pos[0], pos[1], pos[2])
+            position_error = float(np.linalg.norm(pos - target_pos))
 
-            X = np.zeros((14, 1), dtype=np.float64)
-            X[:8, 0] = np.array(dual_state).ravel()
-            X[8:11, 0] = ang_vel_body
-            X[11:14, 0] = lin_vel_body
+            if position_error < convergence_threshold:
+                logger.info(
+                    "SE3 converged to %s: pos_error=%.4f m < %.3f m",
+                    label,
+                    position_error,
+                    convergence_threshold,
+                )
+                return True
 
-            acados_ocp_solver.set(0, "lbx", X[:, 0])
-            acados_ocp_solver.set(0, "ubx", X[:, 0])
-
-            for j in range(N_prediction):
-                yref = X_d[:, j]
-                uref = u_d[:, j]
-                aux_ref = np.hstack((yref, uref, Q_nmpc, Q_e_nmpc, R_nmpc))
-                acados_ocp_solver.set(j, "p", aux_ref)
-
-            acados_ocp_solver.set(
-                N_prediction, "p", np.hstack((X_d[:, -1], u_d[:, -1], Q_nmpc, Q_e_nmpc, R_nmpc))
+            thrust, tau_x, tau_y, tau_z = se3_control(
+                pos,
+                quat_wxyz,
+                lin_vel_body,
+                ang_vel_body,
+                target_pos,
+                0.0,
+                K_p,
+                K_v,
+                K_R,
+                K_w,
+                mass,
+                gravity,
             )
 
-            status = acados_ocp_solver.solve()
-            if status != 0:
-                logger.warning("Solver failed (status=%d), using previous control", status)
-
-            u_control = acados_ocp_solver.get(0, "u")
-            u_arr = np.array(u_control, dtype=np.float64).ravel()
-
             ctrl_writer.write_control(
-                thrust=float(u_arr[0]),
-                torque_x=float(u_arr[1]),
-                torque_y=float(u_arr[2]),
-                torque_z=float(u_arr[3]),
+                thrust=thrust,
+                torque_x=tau_x,
+                torque_y=tau_y,
+                torque_z=tau_z,
             )
 
             now_ns = time.monotonic_ns()
@@ -191,31 +152,57 @@ def run_nmpc(
                 next_wake = now_ns
 
             next_wake += dt_ns
-            iteration += 1
+
+    try:
+        takeoff_target = np.array([0.0, 0.0, 1.5], dtype=np.float64)
+        if not _se3_converge(takeoff_target, "takeoff"):
+            ctrl_writer.detach()
+            state_reader.detach()
+            return
+
+        if not _se3_converge(first_pos, "trajectory"):
+            ctrl_writer.detach()
+            state_reader.detach()
+            return
 
     except KeyboardInterrupt:
-        logger.info("NMPC runner stopped by user")
-    finally:
+        logger.info("SE3 bootstrap stopped by user")
         ctrl_writer.detach()
         state_reader.detach()
+        return
+
+    ctrl_writer.detach()
+    state_reader.detach()
+    logger.info("we are going to enter nmpc")
 
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     if len(sys.argv) < 3:
-        print("Usage: dq-nmpc-runner <nmpc.yaml> <trajectory.npz> [--no-build] [--max-iter N]")
+        print(
+            "Usage: dq-nmpc-runner <nmpc.yaml> <trajectory.npz> [--se3-config SE3.yaml] [--no-build] [--max-iter N]"
+        )
         sys.exit(1)
 
     config_path = sys.argv[1]
     trajectory_path = sys.argv[2]
+    se3_config_path = None
     flag_build = "--no-build" not in sys.argv
     max_iter = 0
     for i, arg in enumerate(sys.argv):
+        if arg == "--se3-config" and i + 1 < len(sys.argv):
+            se3_config_path = sys.argv[i + 1]
         if arg == "--max-iter" and i + 1 < len(sys.argv):
             max_iter = int(sys.argv[i + 1])
 
-    run_nmpc(config_path, trajectory_path, flag_build=flag_build, max_iter=max_iter)
+    run_nmpc(
+        config_path,
+        trajectory_path,
+        se3_config_path=se3_config_path,
+        flag_build=flag_build,
+        max_iter=max_iter,
+    )
 
 
 if __name__ == "__main__":

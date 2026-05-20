@@ -37,6 +37,7 @@ dev = [
 dq-run = "dq_nmpc.cli.nmpc:main_run"
 dq-trajectory = "dq_nmpc.cli.trajectory:main"
 dq-codegen = "dq_nmpc.cli.nmpc:main_codegen"
+dq-build-sim = "dq_nmpc.cli.build:main_build_sim"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dq_nmpc"]

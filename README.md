@@ -38,11 +38,11 @@ uv sync
 # 3. NMPC code generation (one-time)
 uv run dq-codegen config/mujoco/default/nmpc.yaml
 
-# 4. Generate trajectory CSV
-uv run dq-trajectory --shape circle --total-time 5.0 --ts 0.03
+# 4. Generate trajectory CSV + NPZ
+uv run dq-trajectory
 
 # 5. Run sim core + NMPC
-uv run dq-run config/mujoco/default/nmpc.yaml trajectory.csv
+uv run dq-run config/mujoco/default/nmpc.yaml out/circle/trajectory.npz
 ```
 
 ### Prerequisites
@@ -91,8 +91,7 @@ uv run dq-run config/mujoco/default/nmpc.yaml trajectory.csv
 ### `dq-trajectory`
 
 ```
-uv run dq-trajectory --shape hover|line|circle|fig8 \
-  --output trajectory.csv --ts 0.03 --total-time 5.0
+uv run dq-trajectory --config path/to/trajectory.yaml --output trajectory.csv
 ```
 
 ### `dq-codegen`
@@ -104,7 +103,7 @@ uv run dq-codegen config/mujoco/default/nmpc.yaml
 ### `dq-run`
 
 ```
-uv run dq-run config/mujoco/default/nmpc.yaml trajectory.csv [--max-iter 1000]
+uv run dq-run config/mujoco/default/nmpc.yaml out/circle/trajectory.npz [--max-iter 1000]
 ```
 
 ## Shared Memory Interface
@@ -166,5 +165,3 @@ nmpc  ──(acados, math, schema)──
 trajectory ──(minco-python, schema)──
 ├── runner ──(nmpc, trajectory, quadrotor_sim.shm)──
 └── orchestrator ──(runner, subprocess)──
-ros  ──(rclpy, optional)──
-```

@@ -35,10 +35,6 @@ src/dq_nmpc/
 │   ├── codegen.py            # load YAML → acados solver codegen
 │   └── generate_trajectory.py
 │
-├── utils/                    # Standalone helpers
-│
-├── utils.py                  # Re-export shim (backward compat)
-│
 ├── math/                     # Pure math — no acados, no ROS, no SHM
 │   ├── quaternion.py         # Quaternion class (numpy, cs.MX, cs.SX backends)
 │   ├── dual_quaternion.py    # DualQuaternion class (SE(3) algebra)
@@ -76,17 +72,15 @@ docker/                       # ROS 2 adapter (Docker-based, was src/dq_nmpc/ros
 schema  ──(pydantic)──              # single frozen backbone
 math    ──(numpy, casadi)──         # no schema, no acados
 infra   ──(schema)──                # infrastructure primitives
-utils   ──(numpy, casadi)──
-│
 nmpc    ──(acados, math, schema)──
-minco_trajectory ──(minco-python, utils)──
+minco_trajectory ──(minco-python)──
 │
 workflows ──(infra, nmpc, minco_trajectory)──   # chains layers
 cli      ──(workflows)──                       # dispatch only
 docker   ──(rclpy, optional)──               # ROS 2 adapter
 ```
 
-- `math`, `schema`, `infra`, `utils` are importable without acados or minco.
+- `math`, `schema`, `infra` are importable without acados or minco.
 - `nmpc` works only when acados is built and on `PYTHONPATH`.
 - `minco_trajectory/` needs minco-python built (CMake + scikit-build-core).
 - `docker/` is optional — contains the ROS 2 adapter (`docker/dq_nmpc_ros2.Dockerfile`) that provides ROS 2 bridging via Docker.
@@ -142,14 +136,14 @@ cd deps/mujoco_quadrotor && uv run sim build
 ### Main runtime (no ROS)
 
 ```bash
-# 1. Generate trajectory CSV
-uv run dq-trajectory --shape circle --total-time 5.0 --ts 0.03
+# 1. Generate trajectory CSV + NPZ (uses defaults from trajectory.yaml)
+uv run dq-trajectory
 
 # 2. acados code generation (first run)
 uv run dq-codegen config/mujoco/default/nmpc.yaml
 
 # 3. Run sim core + NMPC
-uv run dq-run config/mujoco/default/nmpc.yaml trajectory.csv
+uv run dq-run config/mujoco/default/nmpc.yaml out/circle/trajectory.npz
 ```
 
 ### ROS 2 adapter (optional, Docker)

@@ -27,8 +27,21 @@ def main_run():
     _setup_acados_env()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-    from dq_nmpc.infra.workspace import model_path
+    from dq_nmpc.infra.workspace import model_path, project_root
     from dq_nmpc.workflows.run_nmpc import nmpc_loop
+
+    _root = project_root()
+
+    def _resolve(p: str) -> str:
+        """Resolve path relative to CWD, project root, or src/dq_nmpc."""
+        path = Path(p)
+        if path.exists():
+            return str(path)
+        for base in (_root, _root / "src" / "dq_nmpc"):
+            resolved = base / path
+            if resolved.exists():
+                return str(resolved)
+        return str(path)
 
     parser = argparse.ArgumentParser(description="DQ NMPC orchestrator")
     parser.add_argument("config", help="Path to nmpc.yaml")
@@ -36,13 +49,18 @@ def main_run():
     parser.add_argument("--no-build", action="store_true", help="Skip acados C code generation")
     parser.add_argument("--max-iter", type=int, default=0, help="Max NMPC iterations (0=unlimited)")
     parser.add_argument("--model", type=str, default=str(model_path()), help="Path to drone.xml")
+    parser.add_argument(
+        "--se3-config", type=str, default=None, help="Path to se3.yaml (SE3 controller gains)"
+    )
     args = parser.parse_args()
 
     nmpc_loop(
-        config_path=args.config,
-        trajectory_path=args.trajectory,
+        config_path=_resolve(args.config),
+        trajectory_path=_resolve(args.trajectory),
         flag_build=not args.no_build,
         max_iter=args.max_iter,
+        se3_path=_resolve(args.se3_config) if args.se3_config else None,
+        model_path=args.model,
     )
 
 

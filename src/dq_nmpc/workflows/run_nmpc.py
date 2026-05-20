@@ -13,6 +13,7 @@ from pathlib import Path
 
 from dq_nmpc.infra.docker_util import ensure_sim_built, launch_sim_core
 from dq_nmpc.infra.shm_util import cleanup_shm, wait_for_shm
+from dq_nmpc.infra.workspace import model_path as _default_model
 from dq_nmpc.nmpc.runner import run_nmpc
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,8 @@ def nmpc_loop(
     *,
     flag_build: bool = True,
     max_iter: int = 0,
+    se3_path: str | Path | None = None,
+    model_path: str | Path | None = None,
 ):
     """Run the full NMPC pipeline: build sim, launch core, control loop, cleanup.
 
@@ -31,6 +34,8 @@ def nmpc_loop(
     @param[in] trajectory_path Path to trajectory.npz
     @param[in] flag_build      If True, run acados code generation
     @param[in] max_iter        Maximum NMPC iterations (0 = unlimited)
+    @param[in] se3_path        Path to se3.yaml (SE3 controller gains)
+    @param[in] model_path      Path to drone.xml
     """
     ensure_sim_built()
 
@@ -47,13 +52,14 @@ def nmpc_loop(
 
     try:
         logger.info("Starting simulator core")
-        core_proc = launch_sim_core()
+        core_proc = launch_sim_core(str(model_path or _default_model()))
 
         wait_for_shm()
 
         run_nmpc(
             config_path=config_path,
             trajectory_path=trajectory_path,
+            se3_config_path=se3_path,
             flag_build=flag_build,
             max_iter=max_iter,
         )

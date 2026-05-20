@@ -426,3 +426,21 @@ class TrajectoryConfig(BaseModel):
         with open(path, "r") as stream:
             raw = yaml.safe_load(stream)
         return cls(**raw)
+
+
+class Se3Config(BaseModel):
+    """SE(3) geometric controller gains (Lee et al. 2010)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    K_p: list[float] = Field(default=[4.0, 4.0, 6.0], min_length=3, max_length=3)
+    K_v: list[float] = Field(default=[3.0, 3.0, 4.0], min_length=3, max_length=3)
+    K_R: list[float] = Field(default=[8.0, 8.0, 4.0], min_length=3, max_length=3)
+    K_w: list[float] = Field(default=[1.0, 1.0, 0.5], min_length=3, max_length=3)
+
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> Se3Config:
+        """Load SE3 controller gains from a YAML file."""
+        with open(path, "r") as stream:
+            raw = yaml.safe_load(stream)
+        return cls(**raw)
