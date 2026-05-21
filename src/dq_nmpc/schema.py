@@ -566,6 +566,11 @@ class OutputPaths(BaseModel):
         Path(self.base_dir).mkdir(parents=True, exist_ok=True)
         return Path(self.base_dir) / "se3_bootstrap.rrd"
 
+    @property
+    def nmpc_rrd(self) -> Path:
+        Path(self.base_dir).mkdir(parents=True, exist_ok=True)
+        return Path(self.base_dir) / "nmpc_tracking.rrd"
+
     @classmethod
     def from_trajectory_config(cls, tc: TrajectoryConfig) -> OutputPaths:
         return cls(shape=tc.shape)

@@ -105,7 +105,7 @@ def se3_control(
     F_des[2] -= mass * (-gravity)  # compensate gravity: -m * g_z where g_z = -gravity
 
     thrust_raw = np.dot(F_des, R[:, 2])
-    thrust = float(np.clip(thrust_raw, 0.0, 42.0))
+    thrust = float(np.clip(thrust_raw, 0.0, 21.0))
 
     z_b = F_des / np.linalg.norm(F_des)
     x_c = np.array([np.cos(target_yaw), np.sin(target_yaw), 0.0], dtype=np.float64)

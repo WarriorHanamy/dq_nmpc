@@ -2,12 +2,14 @@
 
 Phase 1a: SE(3) geometric controller converges to takeoff point (0, 0, 1.5).
 Phase 1b: SE(3) controller converges to the first trajectory point.
-Phase 2:  Transition to NMPC trajectory tracking.
+Phase 2:  acados NMPC tracks the full trajectory via online re-planning.
 
-All SE3 segments are recorded via DroneVisualizer (Rerun).
+All phases are recorded via DroneVisualizer (Rerun).
 
 Default trajectory: flatness-based planner (get_flatness_trajectory).
 Pass a path to use a pre-generated NPZ (minco or planner format).
+Minco NPZ paths are reinterpreted through the full flatness decomposition
+(CasADi-compiled) before entering the NMPC loop.
 """
 
 from __future__ import annotations
@@ -105,23 +107,19 @@ def run_nmpc(
     elif trajectory_path is not None:
         data = np.load(trajectory_path)
         if "durations" in data:
-            from dq_nmpc.minco_trajectory.loader import load_trajectory_npz
+            from dq_nmpc.minco_trajectory.loader import (
+                load_trajectory_npz,
+                reinterpret_minco_trajectory,
+            )
 
             traj5 = load_trajectory_npz(trajectory_path)
-            pts = np.array(
-                [traj5.get_pos(t) for t in np.linspace(0, traj5.total_duration, 200)],
-                dtype=np.float64,
-            )
-            traj = FlatnessTrajectory(
-                ref_pos=pts,
-                t=np.linspace(0, traj5.total_duration, 200),
-                ref_yaw=np.zeros(200),
-            )
-            first_pos = np.array(traj5.get_pos(0.0), dtype=np.float64).ravel()
-            viz_traj = traj5
+            traj = reinterpret_minco_trajectory(traj5, config, ts)
+            first_pos = traj.ref_pos[0].astype(np.float64).ravel()
+            viz_traj = traj
             logger.info(
-                "Trajectory loaded (minco): duration=%.2f s, %d pieces",
-                traj5.total_duration,
+                "Trajectory loaded (minco → flatness): N=%d, duration=%.2f s, %d pieces",
+                len(traj.t),
+                traj.t[-1],
                 len(traj5),
             )
         elif "ref_pos" in data:
@@ -306,9 +304,151 @@ def run_nmpc(
         state_reader.detach()
         return
 
+    # -- Phase 2: NMPC trajectory tracking --
+
+    from dq_nmpc.math.dual_quaternion import DualQuaternion
+    from dq_nmpc.nmpc.ocp_setup import solver as create_solver
+
+    N_horizon = config.nmpc.horizon_steps
+    nx = config.nmpc.nx
+    nu = config.nmpc.nu
+    cost_len = nx + nx + nu
+    cost_params = np.ones(cost_len, dtype=np.float64)
+
+    def _shm_to_solver_x0(buf) -> np.ndarray:
+        pos = np.array(buf.position[:], dtype=np.float64).ravel()
+        quat_q = np.array(buf.orientation[:], dtype=np.float64).reshape((4, 1))
+        ang_vel = np.array(buf.angular_velocity[:], dtype=np.float64).ravel()
+        lin_vel = np.array(buf.linear_velocity[:], dtype=np.float64).ravel()
+
+        trans_h = np.array([0.0, pos[0], pos[1], pos[2]], dtype=np.float64).reshape((4, 1))
+        dq = DualQuaternion.from_pose(quat=quat_q, trans=trans_h)
+        dq_vec = np.concatenate([dq.Qr.get, dq.Qd.get], axis=0).ravel()
+
+        twist = np.concatenate([ang_vel, lin_vel])
+        return np.concatenate([dq_vec, twist])
+
+    def _traj_step_to_ref_params(k: int) -> np.ndarray:
+        pos_k = traj.ref_pos[k].ravel()
+        quat_k = traj.ref_quat[k].ravel().reshape((4, 1))
+        omega_k = traj.ref_omega[k].ravel()
+        vel_k = traj.ref_vel[k].ravel()
+        thrust_k = float(traj.ref_thrust[k])
+        torque_k = traj.ref_torque[k].ravel()
+
+        trans_h = np.array([0.0, pos_k[0], pos_k[1], pos_k[2]], dtype=np.float64).reshape((4, 1))
+        dq = DualQuaternion.from_pose(quat=quat_k, trans=trans_h)
+        dq_vec = np.concatenate([dq.Qr.get, dq.Qd.get], axis=0).ravel()
+
+        u_nom = np.array([thrust_k, torque_k[0], torque_k[1], torque_k[2]], dtype=np.float64)
+        return np.concatenate([dq_vec, omega_k, vel_k, u_nom])
+
+    logger.info("Loading acados solver from c_generated_code/ …")
+    solver, _ocp = create_solver(params, flag=False)
+    logger.info(
+        "acados solver loaded (horizon=%d steps, %.2f s)", N_horizon, config.nmpc.horizon_time
+    )
+
+    traj_len = len(traj.t)
+
+    while not state_reader.read(state_buf):
+        time.sleep(0.0001)
+    x0_init = _shm_to_solver_x0(state_buf)
+
+    for i in range(N_horizon):
+        solver.set(i, "x", x0_init.copy())
+        idx = min(i, traj_len - 1)
+        p_ref = _traj_step_to_ref_params(idx)
+        solver.set(i, "p", np.concatenate([p_ref, cost_params]))
+        solver.set(i, "u", p_ref[14:18].copy())
+
+    dt_ns = int(ts * 1e9)
+    next_wake = time.monotonic_ns()
+    k = 0
+    logger.info("NMPC loop start — tracking %d trajectory points", traj_len)
+
+    try:
+        while k < traj_len - N_horizon:
+            while not state_reader.read(state_buf):
+                time.sleep(0.0001)
+
+            x0 = _shm_to_solver_x0(state_buf)
+            solver.set(0, "lbx", x0)
+            solver.set(0, "ubx", x0)
+
+            for i in range(N_horizon):
+                idx = min(k + i, traj_len - 1)
+                p_ref = _traj_step_to_ref_params(idx)
+                solver.set(i, "p", np.concatenate([p_ref, cost_params]))
+
+            solve_start = time.monotonic()
+            status = solver.solve()
+            solve_ms = (time.monotonic() - solve_start) * 1000.0
+
+            if status != 0:
+                logger.error(
+                    "NMPC solver failed at step %d (status=%d, solve=%.1f ms), terminating.",
+                    k,
+                    status,
+                    solve_ms,
+                )
+                break
+
+            u_opt = solver.get(0, "u")
+            pos = np.array(state_buf.position[:], dtype=np.float64)
+            quat_wxyz = np.array(state_buf.orientation[:], dtype=np.float64)
+
+            ctrl_writer.write_control(
+                thrust=float(u_opt[0]),
+                torque_x=float(u_opt[1]),
+                torque_y=float(u_opt[2]),
+                torque_z=float(u_opt[3]),
+            )
+
+            target_pos = traj.ref_pos[min(k, traj_len - 1)]
+            position_error = float(np.linalg.norm(pos - target_pos))
+
+            viz.log_drone(
+                pos,
+                quat_wxyz,
+                state_buf.time,
+                error=position_error,
+                thrust=float(u_opt[0]),
+                tau_x=float(u_opt[1]),
+                tau_y=float(u_opt[2]),
+                tau_z=float(u_opt[3]),
+            )
+
+            if k % 50 == 0:
+                logger.info(
+                    "NMPC step=%d  pos=(%.2f,%.2f,%.2f)  err=%.3f  th=%.2f  "
+                    "tx=%.4f ty=%.4f tz=%.4f  solve=%.1f ms",
+                    k,
+                    pos[0],
+                    pos[1],
+                    pos[2],
+                    position_error,
+                    u_opt[0],
+                    u_opt[1],
+                    u_opt[2],
+                    u_opt[3],
+                    solve_ms,
+                )
+
+            now_ns = time.monotonic_ns()
+            if now_ns < next_wake:
+                time.sleep((next_wake - now_ns) / 1e9)
+            else:
+                next_wake = now_ns
+            next_wake += dt_ns
+            k += 1
+
+    except KeyboardInterrupt:
+        logger.info("NMPC stopped by user at step %d", k)
+
     ctrl_writer.detach()
     state_reader.detach()
-    logger.info("we are going to enter nmpc")
+    logger.info("NMPC loop terminated after %d steps", k)
 
 
 def main():
