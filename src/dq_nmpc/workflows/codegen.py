@@ -18,7 +18,5 @@ def codegen(config_path: str | Path) -> None:
     """
     config_path = Path(config_path)
     config = NMPCConfig.from_yaml(config_path)
-    params = config.to_params_dict()
-    print(params)
-    ocp_solver, ocp = solver(params, flag=True)
+    ocp_solver, ocp = solver(config, codegen=True)
     logger.info("Code generation complete for %s", config_path.name)

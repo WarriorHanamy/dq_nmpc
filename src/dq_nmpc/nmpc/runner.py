@@ -62,7 +62,6 @@ def run_nmpc(
         raise RuntimeError("quadrotor_sim.shm not available; ensure quadrotor_sim is on PYTHONPATH")
 
     config = NMPCConfig.from_yaml(config_path)
-    params = config.to_params_dict()
     logger.info("Config loaded: %s", config_path)
 
     if se3_config_path is not None:
@@ -72,9 +71,9 @@ def run_nmpc(
         se3_config = Se3Config()
         logger.info("SE3 config: defaults")
 
-    mass = params["mass"]
-    gravity = params["gravity"]
-    control_dt = params["nmpc"]["control_update_interval"]
+    mass = config.mass
+    gravity = config.gravity
+    control_dt = config.nmpc.control_update_interval
 
     if planner:
         from dq_nmpc.nmpc.planner import get_flatness_trajectory
@@ -355,7 +354,7 @@ def run_nmpc(
         return np.concatenate([dq_vec, omega_k, vel_k, u_nom])
 
     logger.info("Loading acados solver from c_generated_code/ …")
-    solver, _ocp = create_solver(params, flag=False)
+    solver, _ocp = create_solver(config, codegen=False)
     logger.info(
         "acados solver loaded (horizon=%d steps, %.2f s)", N_horizon, config.nmpc.horizon_time
     )

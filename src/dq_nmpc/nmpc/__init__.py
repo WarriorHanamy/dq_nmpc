@@ -26,7 +26,7 @@ try:
         make_quadrotor_model,
         rotate_vector_body_to_inertial,
     )
-    from dq_nmpc.nmpc.ocp_setup import create_ocp_solver, solver  # noqa: F401
+    from dq_nmpc.nmpc.ocp_setup import solver  # noqa: F401
     from dq_nmpc.nmpc.planner import get_flatness_trajectory  # noqa: F401
 except ImportError:
     pass
