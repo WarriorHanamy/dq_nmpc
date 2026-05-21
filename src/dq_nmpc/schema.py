@@ -48,6 +48,34 @@ def csv_column_index(name: str) -> int:
     return TRAJECTORY_CSV_COLUMNS.index(name)
 
 
+# Ordered control input layout — defines u[0], u[1], u[2], u[3] semantics.
+# Must be kept in sync with ControlCommand.to_array() order and
+# dynamics.py CasADi symbol ordering.
+CONTROL_INPUT: tuple[str, ...] = (
+    "thrust",
+    "tau_x",
+    "tau_y",
+    "tau_z",
+)
+
+CONTROL_SYM_NAMES: tuple[str, ...] = (
+    "F_ref",
+    "tau_1_ref",
+    "tau_2_ref",
+    "tau_3_ref",
+)
+
+
+def control_index(name: str) -> int:
+    """Return 0-based index of a control channel name in CONTROL_INPUT."""
+    return CONTROL_INPUT.index(name)
+
+
+def control_name(idx: int) -> str:
+    """Return the CasADi symbol name for the control channel at index idx."""
+    return CONTROL_SYM_NAMES[idx]
+
+
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
@@ -150,7 +178,7 @@ class ControlCommand(BaseModel):
     torque_z: float = Field(default=0.0, description="Torque about body z [N·m]")
 
     def to_array(self) -> np.ndarray:
-        """Return (4,) numpy array [thrust, tau_x, tau_y, tau_z]."""
+        """Return (4,) numpy array ordered per CONTROL_INPUT."""
         return np.array(
             [self.thrust, self.torque_x, self.torque_y, self.torque_z],
             dtype=np.float64,
@@ -158,13 +186,14 @@ class ControlCommand(BaseModel):
 
     @classmethod
     def from_array(cls, arr: np.ndarray) -> ControlCommand:
-        """Construct from (4,) array."""
+        """Construct from (4,) array ordered per CONTROL_INPUT."""
         arr = np.asarray(arr, dtype=np.float64).ravel()
+        _i = control_index
         return cls(
-            thrust=arr[0],
-            torque_x=arr[1],
-            torque_y=arr[2],
-            torque_z=arr[3],
+            thrust=arr[_i("thrust")],
+            torque_x=arr[_i("tau_x")],
+            torque_y=arr[_i("tau_y")],
+            torque_z=arr[_i("tau_z")],
         )
 
 
@@ -365,11 +394,13 @@ class TrajectoryPoint(BaseModel):
         )
 
     def control_as_array(self) -> np.ndarray:
-        """Return (4,) control array."""
-        return np.array(
-            [self.thrust, self.torque_x, self.torque_y, self.torque_z],
-            dtype=np.float64,
-        )
+        """Return (4,) array ordered per CONTROL_INPUT."""
+        arr = np.zeros(len(CONTROL_INPUT), dtype=np.float64)
+        arr[control_index("thrust")] = self.thrust
+        arr[control_index("tau_x")] = self.torque_x
+        arr[control_index("tau_y")] = self.torque_y
+        arr[control_index("tau_z")] = self.torque_z
+        return arr
 
 
 class ReferenceTrajectory(BaseModel):

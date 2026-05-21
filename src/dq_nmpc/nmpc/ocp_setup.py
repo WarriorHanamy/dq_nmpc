@@ -3,6 +3,7 @@ from acados_template import AcadosOcp, AcadosOcpSolver
 from casadi import MX, vertcat
 
 from dq_nmpc.nmpc.dynamics import export_acados_model, make_quadrotor_model
+from dq_nmpc.schema import CONTROL_INPUT, control_index
 
 
 def _setup_ocp(
@@ -38,10 +39,10 @@ def _setup_ocp(
 
     # Control effort using gain matrices
     R = MX.zeros(4, 4)
-    R[0, 0] = 20 / F_max
-    R[1, 1] = 60 / tau_1_max
-    R[2, 2] = 60 / tau_2_max
-    R[3, 3] = 60 / tau_3_max
+    R[control_index("thrust"), control_index("thrust")] = 20 / F_max
+    R[control_index("tau_x"), control_index("tau_x")] = 60 / tau_1_max
+    R[control_index("tau_y"), control_index("tau_y")] = 60 / tau_2_max
+    R[control_index("tau_z"), control_index("tau_z")] = 60 / tau_3_max
 
     # Desired Dual Quaternion
     dual_d = ocp.p[0:8]
@@ -96,9 +97,18 @@ def _setup_ocp(
 
     # Constraints
     ocp.constraints.constr_type = "BGH"
-    ocp.constraints.lbu = np.array([F_min, tau_1_min, tau_2_min, tau_3_min])
-    ocp.constraints.ubu = np.array([F_max, tau_1_max, tau_2_max, tau_3_max])
-    ocp.constraints.idxbu = np.array([0, 1, 2, 3])
+    n_ctrl = len(CONTROL_INPUT)
+    ocp.constraints.lbu = np.zeros(n_ctrl)
+    ocp.constraints.ubu = np.zeros(n_ctrl)
+    ocp.constraints.lbu[control_index("thrust")] = F_min
+    ocp.constraints.ubu[control_index("thrust")] = F_max
+    ocp.constraints.lbu[control_index("tau_x")] = tau_1_min
+    ocp.constraints.ubu[control_index("tau_x")] = tau_1_max
+    ocp.constraints.lbu[control_index("tau_y")] = tau_2_min
+    ocp.constraints.ubu[control_index("tau_y")] = tau_2_max
+    ocp.constraints.lbu[control_index("tau_z")] = tau_3_min
+    ocp.constraints.ubu[control_index("tau_z")] = tau_3_max
+    ocp.constraints.idxbu = np.arange(n_ctrl)
     ocp.constraints.x0 = x0
 
     # Nonlinear constraints (quaternion unit norm)

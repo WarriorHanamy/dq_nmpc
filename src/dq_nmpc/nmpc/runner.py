@@ -23,7 +23,7 @@ import numpy as np
 
 from dq_nmpc.nmpc.drone_visualizer import DroneVisualizer
 from dq_nmpc.nmpc.se3_controller import se3_control
-from dq_nmpc.schema import FlatnessTrajectory, NMPCConfig, OutputPaths, Se3Config
+from dq_nmpc.schema import FlatnessTrajectory, NMPCConfig, OutputPaths, Se3Config, control_index
 
 try:
     from quadrotor_sim.shm import (
@@ -340,7 +340,11 @@ def run_nmpc(
         dq = DualQuaternion.from_pose(quat=quat_k, trans=trans_h)
         dq_vec = np.concatenate([dq.Qr.get, dq.Qd.get], axis=0).ravel()
 
-        u_nom = np.array([thrust_k, torque_k[0], torque_k[1], torque_k[2]], dtype=np.float64)
+        u_nom = np.zeros(nu, dtype=np.float64)
+        u_nom[control_index("thrust")] = thrust_k
+        u_nom[control_index("tau_x")] = torque_k[0]
+        u_nom[control_index("tau_y")] = torque_k[1]
+        u_nom[control_index("tau_z")] = torque_k[2]
         return np.concatenate([dq_vec, omega_k, vel_k, u_nom])
 
     logger.info("Loading acados solver from c_generated_code/ …")
@@ -360,7 +364,7 @@ def run_nmpc(
         idx = min(i, traj_len - 1)
         p_ref = _traj_step_to_ref_params(idx)
         solver.set(i, "p", np.concatenate([p_ref, cost_params]))
-        solver.set(i, "u", p_ref[14:18].copy())
+        solver.set(i, "u", p_ref[nx : nx + nu].copy())
 
     dt_ns = int(ts * 1e9)
     next_wake = time.monotonic_ns()
@@ -399,10 +403,10 @@ def run_nmpc(
             quat_wxyz = np.array(state_buf.orientation[:], dtype=np.float64)
 
             ctrl_writer.write_control(
-                thrust=float(u_opt[0]),
-                torque_x=float(u_opt[1]),
-                torque_y=float(u_opt[2]),
-                torque_z=float(u_opt[3]),
+                thrust=float(u_opt[control_index("thrust")]),
+                torque_x=float(u_opt[control_index("tau_x")]),
+                torque_y=float(u_opt[control_index("tau_y")]),
+                torque_z=float(u_opt[control_index("tau_z")]),
             )
 
             target_pos = traj.ref_pos[min(k, traj_len - 1)]
@@ -413,10 +417,10 @@ def run_nmpc(
                 quat_wxyz,
                 state_buf.time,
                 error=position_error,
-                thrust=float(u_opt[0]),
-                tau_x=float(u_opt[1]),
-                tau_y=float(u_opt[2]),
-                tau_z=float(u_opt[3]),
+                thrust=float(u_opt[control_index("thrust")]),
+                tau_x=float(u_opt[control_index("tau_x")]),
+                tau_y=float(u_opt[control_index("tau_y")]),
+                tau_z=float(u_opt[control_index("tau_z")]),
             )
 
             if k % 50 == 0:
@@ -428,10 +432,10 @@ def run_nmpc(
                     pos[1],
                     pos[2],
                     position_error,
-                    u_opt[0],
-                    u_opt[1],
-                    u_opt[2],
-                    u_opt[3],
+                    u_opt[control_index("thrust")],
+                    u_opt[control_index("tau_x")],
+                    u_opt[control_index("tau_y")],
+                    u_opt[control_index("tau_z")],
                     solve_ms,
                 )
 

@@ -12,6 +12,7 @@ from dq_nmpc.math.dq_algebra import (
 )
 from dq_nmpc.math.dual_quaternion import DualQuaternion
 from dq_nmpc.math.quaternion import Quaternion
+from dq_nmpc.schema import CONTROL_SYM_NAMES
 
 """Quadrotor dynamics in dual-quaternion representation for acados NMPC.
 
@@ -496,13 +497,9 @@ def export_acados_model(params):
         vz_dot,
     )
 
-    # Control Actions
-    F_ref = ca.MX.sym("F_ref")
-    tau_1_ref = ca.MX.sym("tau_1_ref")
-    tau_2_ref = ca.MX.sym("tau_2_ref")
-    tau_3_ref = ca.MX.sym("tau_3_ref")
-
-    u = ca.vertcat(F_ref, tau_1_ref, tau_2_ref, tau_3_ref)
+    # Control Actions — ordered per schema.CONTROL_SYM_NAMES
+    u_syms = [ca.MX.sym(name) for name in CONTROL_SYM_NAMES]
+    u = ca.vertcat(*u_syms)
     model.u = u
 
     # System Dynamics
@@ -626,13 +623,9 @@ def make_quadrotor_model(L: list) -> AcadosModel:
         vz_dot,
     )
 
-    # Control Actions
-    F_ref = ca.MX.sym("F_ref")
-    tau_1_ref = ca.MX.sym("tau_1_ref")
-    tau_2_ref = ca.MX.sym("tau_2_ref")
-    tau_3_ref = ca.MX.sym("tau_3_ref")
-
-    u = ca.vertcat(F_ref, tau_1_ref, tau_2_ref, tau_3_ref)
+    # Control Actions — ordered per schema.CONTROL_SYM_NAMES
+    u_syms = [ca.MX.sym(name) for name in CONTROL_SYM_NAMES]
+    u = ca.vertcat(*u_syms)
 
     dual_dot = _dualquat_kinematics(dualquat, twist)
     twist_dot = _dualquat_acceleration(dualquat, twist, u, L)
