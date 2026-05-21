@@ -75,17 +75,19 @@ def visualize_trajectory(
     vel = data[:, _i("vx") : _i("vz") + 1]
     acc = data[:, _i("ax") : _i("az") + 1]
     jer = data[:, _i("jx") : _i("jz") + 1]
+    sna = data[:, _i("sx") : _i("sz") + 1]
     w = data[:, _i("wx") : _i("wz") + 1]
     thrust = data[:, _i("thrust")]
 
     v_norm = np.linalg.norm(vel, axis=1)
 
     fig = make_subplots(
-        rows=5,
+        rows=6,
         cols=2,
         column_widths=[0.55, 0.45],
         specs=[
-            [{"type": "scene", "rowspan": 5}, {"type": "xy"}],
+            [{"type": "scene", "rowspan": 6}, {"type": "xy"}],
+            [None, {"type": "xy"}],
             [None, {"type": "xy"}],
             [None, {"type": "xy"}],
             [None, {"type": "xy"}],
@@ -97,6 +99,7 @@ def visualize_trajectory(
             "Velocity & Body Rates",
             "Acceleration [m/s²]",
             "Jerk [m/s³]",
+            "Snap [m/s⁴]",
             "Thrust [N]",
         ),
         vertical_spacing=0.05,
@@ -277,10 +280,27 @@ def visualize_trajectory(
         col=2,
     )
 
-    # --- Row 5: thrust ---
+    # --- Row 5: snap ---
+    fig.add_trace(
+        go.Scatter(x=t, y=sna[:, 0], name="sx", line=dict(width=1.5), legendgroup="sna"),
+        row=5,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(x=t, y=sna[:, 1], name="sy", line=dict(width=1.5), legendgroup="sna"),
+        row=5,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(x=t, y=sna[:, 2], name="sz", line=dict(width=1.5), legendgroup="sna"),
+        row=5,
+        col=2,
+    )
+
+    # --- Row 6: thrust ---
     fig.add_trace(
         go.Scatter(x=t, y=thrust, name="thrust [N]", line=dict(width=1.5)),
-        row=5,
+        row=6,
         col=2,
     )
 
@@ -300,11 +320,12 @@ def visualize_trajectory(
         legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=1.02),
     )
 
-    fig.update_xaxes(title_text="Time [s]", row=5, col=2)
+    fig.update_xaxes(title_text="Time [s]", row=6, col=2)
     fig.update_yaxes(title_text="[m/s] / [rad/s]", row=2, col=2)
     fig.update_yaxes(title_text="[m/s²]", row=3, col=2)
     fig.update_yaxes(title_text="[m/s³]", row=4, col=2)
-    fig.update_yaxes(title_text="[N]", row=5, col=2)
+    fig.update_yaxes(title_text="[m/s⁴]", row=5, col=2)
+    fig.update_yaxes(title_text="[N]", row=6, col=2)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.write_html(str(output_path))

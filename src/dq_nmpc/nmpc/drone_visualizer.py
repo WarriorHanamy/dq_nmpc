@@ -1,7 +1,7 @@
 """Rerun-based live visualizer for drone guidance and NMPC tracking.
 
 Records drone pose, body axes, target markers, trajectory path,
-position error, thrust, and body torques.
+position error, thrust, body torques, and NMPC solver diagnostics.
 """
 
 from __future__ import annotations
@@ -16,21 +16,20 @@ __all__ = ["DroneVisualizer"]
 
 
 class DroneVisualizer:
-    """Live + offline Rerun recorder for drone guidance phases.
+    """Live + offline Rerun recorder.
 
     Usage::
 
-        viz = DroneVisualizer("out/se3_bootstrap.rrd")
+        viz = DroneVisualizer("out/boot.rrd")
         viz.log_static_trajectory(traj5)
         viz.log_static_markers(takeoff=(0, 0, 1.5), first_traj=(2, 0, 2))
-        while not converged:
-            viz.log_drone(pos, quat, sim_time, error=pos_error, thrust=thrust,
-                          tau_x=tx, tau_y=ty, tau_z=tz)
+        viz.log_drone(pos, quat, sim_time, error=pos_error, thrust=thrust,
+                      tau_x=tx, tau_y=ty, tau_z=tz)
+        viz.log_nmpc_reference(ref_pos)
+        viz.log_nmpc_stats(solve_ms=..., residuals=..., qp_iter=..., qp_stat=...)
     """
 
-    def __init__(
-        self, rrd_path: str, application_id: str = "dq_nmpc_se3", spawn: bool = False
-    ) -> None:
+    def __init__(self, rrd_path: str, application_id: str = "dq_nmpc", spawn: bool = False) -> None:
         rr.init(application_id, spawn=spawn)
         rr.save(rrd_path)
 
@@ -40,13 +39,51 @@ class DroneVisualizer:
                 Horizontal(
                     TimeSeriesView(
                         origin="/drone",
-                        contents=["/drone/pos_x", "/drone/pos_y", "/drone/pos_z"],
+                        contents=[
+                            "/drone/pos_x",
+                            "/drone/pos_y",
+                            "/drone/pos_z",
+                            "/nmpc/ref_x",
+                            "/nmpc/ref_y",
+                            "/nmpc/ref_z",
+                        ],
                         name="Position",
                     ),
-                    TimeSeriesView(origin="/control", name="Control"),
-                    TimeSeriesView(origin="/error", name="Error"),
+                    TimeSeriesView(
+                        origin="/control",
+                        contents=[
+                            "/control/thrust",
+                            "/control/torque_x",
+                            "/control/torque_y",
+                            "/control/torque_z",
+                            "/nmpc/ref_thrust",
+                        ],
+                        name="Control",
+                    ),
+                    TimeSeriesView(
+                        origin="/error",
+                        contents=[
+                            "/error/position",
+                            "/nmpc/pos_err_x",
+                            "/nmpc/pos_err_y",
+                            "/nmpc/pos_err_z",
+                        ],
+                        name="Error",
+                    ),
+                    TimeSeriesView(
+                        origin="/nmpc",
+                        contents=[
+                            "/nmpc/solve_ms",
+                            "/nmpc/qp_iter",
+                            "/nmpc/res_eq",
+                            "/nmpc/res_ineq",
+                            "/nmpc/res_comp",
+                            "/nmpc/res_stat",
+                        ],
+                        name="Solver",
+                    ),
                     name="Scalars",
-                    column_shares=[1, 3, 1],
+                    column_shares=[2, 2, 2, 1],
                 ),
                 row_shares=[3, 1],
             ),
@@ -54,11 +91,7 @@ class DroneVisualizer:
         rr.send_blueprint(blueprint, make_default=True)
 
     def log_static_trajectory(self, traj, num_samples: int = 200) -> None:
-        """Log the full reference trajectory path as a static line strip.
-
-        Supports minco Trajectory5 (has .get_pos(t), .total_duration)
-        and FlatnessTrajectory (has .ref_pos, .t).
-        """
+        """Log the full reference trajectory path as a static line strip."""
         if hasattr(traj, "ref_pos"):
             pts = traj.ref_pos
             points = [(float(p[0]), float(p[1]), float(p[2])) for p in pts]
@@ -115,7 +148,7 @@ class DroneVisualizer:
         tau_y: float | None = None,
         tau_z: float | None = None,
     ) -> None:
-        """Log drone pose, position, error, thrust, and torques as a single time step."""
+        """Log drone pose, position scalars, error, thrust, and torques."""
         rr.set_time("sim_time", timestamp=sim_time)
 
         rr.log(
@@ -163,19 +196,87 @@ class DroneVisualizer:
         if thrust is not None and tau_x is not None and tau_y is not None and tau_z is not None:
             self._log_control(thrust, tau_x, tau_y, tau_z)
 
+    def log_nmpc_reference(self, ref_pos: np.ndarray) -> None:
+        """Log NMPC reference position as a bright red sphere and scalars."""
+        x, y, z = float(ref_pos[0]), float(ref_pos[1]), float(ref_pos[2])
+        rr.log(
+            "nmpc/ref_point",
+            rr.Points3D([(x, y, z)], radii=[0.04], colors=[(255, 50, 50)]),
+        )
+        rr.log("nmpc/ref_x", rr.Scalars([x]))
+        rr.log("nmpc/ref_y", rr.Scalars([y]))
+        rr.log("nmpc/ref_z", rr.Scalars([z]))
+
+    def log_nmpc_horizon(
+        self,
+        positions: list[tuple[float, float, float]],
+    ) -> None:
+        """Log NMPC horizon preview: blue line strip + red gradient spheres.
+
+        The first point (i=0) is the current-step reference (bright red,
+        larger radius).  Later points are future references (dimmer red,
+        smaller radius).
+
+        @param[in] positions  N horizon reference positions [(x, y, z), ...]
+        """
+        rr.log(
+            "nmpc/horizon/path",
+            rr.LineStrips3D([positions], colors=[(60, 120, 255)]),
+        )
+        for i, pt in enumerate(positions):
+            color = (255, 0, 0) if i == 0 else (140, 30, 30)
+            radius = 0.035 if i == 0 else 0.022
+            rr.log(
+                f"nmpc/horizon/s{i}",
+                rr.Points3D([pt], radii=[radius], colors=[color]),
+            )
+
+    def log_nmpc_stats(
+        self,
+        solve_ms: float,
+        residuals: np.ndarray,
+        qp_iter: np.ndarray,
+        qp_stat: np.ndarray | None = None,
+        ref_thrust: float | None = None,
+        pos_err_xyz: np.ndarray | None = None,
+    ) -> None:
+        """Log NMPC solver diagnostics as scalar time series.
+
+        @param[in] solve_ms    Wall-clock solve time [ms]
+        @param[in] residuals   (4,) array: eq, ineq, comp, stat residual norms
+        @param[in] qp_iter     (2,) array: QP iterations [outer, inner]
+        @param[in] qp_stat     (2,) array: QP solver status codes (optional)
+        @param[in] ref_thrust  Feedforward reference thrust [N] (optional)
+        @param[in] pos_err_xyz (3,) per-axis position error [m] (optional)
+        """
+        rr.log("nmpc/solve_ms", rr.Scalars([solve_ms]))
+        rr.log("nmpc/res_eq", rr.Scalars([float(residuals[0])]))
+        rr.log("nmpc/res_ineq", rr.Scalars([float(residuals[1])]))
+        rr.log("nmpc/res_comp", rr.Scalars([float(residuals[2])]))
+        rr.log("nmpc/res_stat", rr.Scalars([float(residuals[3])]))
+        rr.log("nmpc/qp_iter", rr.Scalars([float(qp_iter[0])]))
+
+        if qp_stat is not None and len(qp_stat) >= 2:
+            rr.log("nmpc/qp_stat", rr.Scalars([float(qp_stat[0])]))
+
+        if ref_thrust is not None:
+            rr.log("nmpc/ref_thrust", rr.Scalars([ref_thrust]))
+
+        if pos_err_xyz is not None:
+            rr.log("nmpc/pos_err_x", rr.Scalars([float(pos_err_xyz[0])]))
+            rr.log("nmpc/pos_err_y", rr.Scalars([float(pos_err_xyz[1])]))
+            rr.log("nmpc/pos_err_z", rr.Scalars([float(pos_err_xyz[2])]))
+
     def _log_pos(self, pos: np.ndarray) -> None:
-        """Log drone position as scalar time series."""
         rr.log("drone/pos_x", rr.Scalars([float(pos[0])]))
         rr.log("drone/pos_y", rr.Scalars([float(pos[1])]))
         rr.log("drone/pos_z", rr.Scalars([float(pos[2])]))
 
     def _log_control(self, thrust: float, tau_x: float, tau_y: float, tau_z: float) -> None:
-        """Log thrust and body torques as scalar time series."""
         rr.log("control/thrust", rr.Scalars([thrust]))
         rr.log("control/torque_x", rr.Scalars([tau_x]))
         rr.log("control/torque_y", rr.Scalars([tau_y]))
         rr.log("control/torque_z", rr.Scalars([tau_z]))
 
     def _log_error(self, position_error: float) -> None:
-        """Log position error as scalar time series."""
         rr.log("error/position", rr.Scalars([position_error]))

@@ -35,11 +35,11 @@ def _in_dir(path: Path):
 
 
 def _sample_trajectory(
-    traj5: Any,
+    traj7: Any,
     flatness: CachedFlatness,
     ts: float,
 ) -> list[tuple[float, ...]]:
-    duration = traj5.total_duration
+    duration = traj7.total_duration
     num_samples = int(duration / ts) + 1
     if num_samples < 2:
         num_samples = 2
@@ -48,10 +48,11 @@ def _sample_trajectory(
 
     for i in range(num_samples):
         t = i * dt
-        pos = traj5.get_pos(t)
-        vel = traj5.get_vel(t)
-        acc = traj5.get_acc(t)
-        jer = traj5.get_jer(t)
+        pos = traj7.get_pos(t)
+        vel = traj7.get_vel(t)
+        acc = traj7.get_acc(t)
+        jer = traj7.get_jer(t)
+        sna = traj7.get_sna(t)
 
         yaw = np.arctan2(vel[1], vel[0]) if np.linalg.norm(vel[:2]) > 0.01 else 0.0
         yaw_rate = 0.0
@@ -72,6 +73,9 @@ def _sample_trajectory(
                 jer[0],
                 jer[1],
                 jer[2],
+                float(sna[0]),
+                float(sna[1]),
+                float(sna[2]),
                 quat[0],
                 quat[1],
                 quat[2],
@@ -105,8 +109,8 @@ def generate_trajectory(
     inner_points = waypoints_for_shape(config.shape, config.num_waypoints)
     num_pieces = inner_points.shape[1] + 1
 
-    head_pva = np.column_stack([inner_points[:, 0], np.zeros(3), np.zeros(3)])
-    tail_pva = np.column_stack([inner_points[:, -1], np.zeros(3), np.zeros(3)])
+    head_pvaj = np.column_stack([inner_points[:, 0], np.zeros(3), np.zeros(3), np.zeros(3)])
+    tail_pvaj = np.column_stack([inner_points[:, -1], np.zeros(3), np.zeros(3), np.zeros(3)])
 
     # Option B: initial piece duration from arc length / nominal speed
     pts = np.column_stack([inner_points[:, 0], inner_points])
@@ -132,8 +136,8 @@ def generate_trajectory(
     with _in_dir(_GCONFIG_ROOT):
         opt = minco.gcopter.GCOPTERPolytopeSFC()
     ok = opt.setup_basic_trajectory(
-        head_pva,
-        tail_pva,
+        head_pvaj,
+        tail_pvaj,
         initial_time,
         inner_points,
         sfc_polys,
@@ -143,9 +147,9 @@ def generate_trajectory(
     if not ok:
         raise RuntimeError("GCOPTER setup failed")
 
-    cost, traj5 = opt.optimize(rel_cost_tol=1e-3)
+    cost, traj7 = opt.optimize(rel_cost_tol=1e-3)
 
-    rows = _sample_trajectory(traj5, flatness, config.ts)
+    rows = _sample_trajectory(traj7, flatness, config.ts)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     with open(output, "w", newline="") as f:
@@ -156,8 +160,8 @@ def generate_trajectory(
 
     print(f"Trajectory saved: {output}  ({len(rows)} points, cost={cost:.4f})")
 
-    durations = np.array(list(traj5.durations), dtype=np.float64)
-    coeffs = np.stack([traj5[i].get_coeff_mat() for i in range(len(traj5))])
+    durations = np.array(list(traj7.durations), dtype=np.float64)
+    coeffs = np.stack([traj7[i].get_coeff_mat() for i in range(len(traj7))])
     np.savez(npz_path, durations=durations, coeffs=coeffs)
     print(f"Trajectory coeffs saved: {npz_path}")
 

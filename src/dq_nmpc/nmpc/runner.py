@@ -112,15 +112,15 @@ def run_nmpc(
                 reinterpret_minco_trajectory,
             )
 
-            traj5 = load_trajectory_npz(trajectory_path)
-            traj = reinterpret_minco_trajectory(traj5, config, ts)
+            traj7 = load_trajectory_npz(trajectory_path)
+            traj = reinterpret_minco_trajectory(traj7, config, ts)
             first_pos = traj.ref_pos[0].astype(np.float64).ravel()
             viz_traj = traj
             logger.info(
                 "Trajectory loaded (minco → flatness): N=%d, duration=%.2f s, %d pieces",
                 len(traj.t),
                 traj.t[-1],
-                len(traj5),
+                len(traj7),
             )
         elif "ref_pos" in data:
             traj = FlatnessTrajectory.load_npz(trajectory_path)
@@ -409,7 +409,8 @@ def run_nmpc(
                 torque_z=float(u_opt[control_index("tau_z")]),
             )
 
-            target_pos = traj.ref_pos[min(k, traj_len - 1)]
+            idx_k = min(k, traj_len - 1)
+            target_pos = traj.ref_pos[idx_k]
             position_error = float(np.linalg.norm(pos - target_pos))
 
             viz.log_drone(
@@ -421,6 +422,18 @@ def run_nmpc(
                 tau_x=float(u_opt[control_index("tau_x")]),
                 tau_y=float(u_opt[control_index("tau_y")]),
                 tau_z=float(u_opt[control_index("tau_z")]),
+            )
+
+            viz.log_nmpc_reference(target_pos)
+            horizon_pts = [tuple(traj.ref_pos[min(k + i, traj_len - 1)]) for i in range(N_horizon)]
+            viz.log_nmpc_horizon(horizon_pts)
+            viz.log_nmpc_stats(
+                solve_ms=solve_ms,
+                residuals=solver.get_stats("residuals"),
+                qp_iter=solver.get_stats("qp_iter"),
+                qp_stat=solver.get_stats("qp_stat"),
+                ref_thrust=float(traj.ref_thrust[idx_k]),
+                pos_err_xyz=pos - target_pos,
             )
 
             if k % 50 == 0:
