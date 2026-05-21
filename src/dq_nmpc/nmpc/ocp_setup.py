@@ -3,7 +3,16 @@ from acados_template import AcadosOcp, AcadosOcpSolver
 from casadi import MX, vertcat
 
 from dq_nmpc.nmpc.dynamics import export_acados_model, make_quadrotor_model
-from dq_nmpc.schema import CONTROL_INPUT, control_index
+from dq_nmpc.schema import (
+    CONTROL_INPUT,
+    COST_PARAMS_DIM,
+    NMPC_REF_DIM,
+    NMPC_REF_DQ_SLICE,
+    NMPC_REF_OMEGA_SLICE,
+    NMPC_REF_UNOM_SLICE,
+    NMPC_REF_VEL_SLICE,
+    control_index,
+)
 
 
 def _setup_ocp(
@@ -18,7 +27,7 @@ def _setup_ocp(
     rotation,
     N_horizon,
     t_horizon,
-    ts,
+    control_dt,
     F_max,
     F_min,
     tau_1_max,
@@ -45,7 +54,7 @@ def _setup_ocp(
     R[control_index("tau_z"), control_index("tau_z")] = 60 / tau_3_max
 
     # Desired Dual Quaternion
-    dual_d = ocp.p[0:8]
+    dual_d = ocp.p[NMPC_REF_DQ_SLICE]
 
     # Current Dual Quaternion
     dual = model.x[0:8]
@@ -55,7 +64,7 @@ def _setup_ocp(
     ln_error = vertcat(ln_error_full[1:4], ln_error_full[5:8])
 
     # Inputs
-    nominal_input = ocp.p[14:18]
+    nominal_input = ocp.p[NMPC_REF_UNOM_SLICE]
     error_nominal_input = nominal_input - model.u[0:4]
 
     # Angular velocities
@@ -63,8 +72,8 @@ def _setup_ocp(
     v_b = model.x[11:14]
     v_i = rotation(model.x[0:4], v_b)
 
-    w_b_d = ocp.p[8:11]
-    v_i_d = ocp.p[11:14]
+    w_b_d = ocp.p[NMPC_REF_OMEGA_SLICE]
+    v_i_d = ocp.p[NMPC_REF_VEL_SLICE]
     error_w = w_b - w_b_d
     error_v = v_i - v_i_d
 
@@ -87,12 +96,10 @@ def _setup_ocp(
         10 * (ln_error.T @ Q_l @ ln_error) + 1 * (error_w.T @ error_w) + 1 * (error_v.T @ error_v)
     )
 
-    # Parameter initial values: ref_params (nx + nu) + cost_params (nx + nx + nu)
-    nx = model.x.size()[0]
-    nu = model.u.size()[0]
-    ref_params = np.zeros(nx + nu)
+    # Parameter initial values: ref_params (NMPC_REF_DIM) + cost_params (COST_PARAMS_DIM)
+    ref_params = np.zeros(NMPC_REF_DIM)
     ref_params[0] = 1.0
-    cost_params = np.ones(nx + nx + nu)
+    cost_params = np.ones(COST_PARAMS_DIM)
     ocp.parameter_values = np.concatenate([ref_params, cost_params])
 
     # Constraints
@@ -136,7 +143,7 @@ def _setup_ocp(
     ocp.solver_options.regularize_method = "CONVEXIFY"
     ocp.solver_options.integrator_type = "IRK"
     ocp.solver_options.nlp_solver_type = "SQP_RTI"
-    ocp.solver_options.Tsim = ts
+    ocp.solver_options.Tsim = control_dt
     ocp.solver_options.tf = t_horizon
 
 
@@ -153,7 +160,7 @@ def create_ocp_solver(
     tau_3_max,
     tau_3_min,
     L,
-    ts,
+    control_dt,
     path,
 ) -> AcadosOcp:
     ocp = AcadosOcp()
@@ -175,7 +182,7 @@ def create_ocp_solver(
         rotation,
         N_horizon,
         t_horizon,
-        ts,
+        control_dt,
         F_max,
         F_min,
         tau_1_max,
@@ -219,7 +226,7 @@ def solver(params, flag=True):
         rotation,
         nmpc["horizon_steps"],
         nmpc["horizon_time"],
-        nmpc["ts"],
+        nmpc["control_update_interval"],
         nmpc["ubu"][0],
         nmpc["lbu"][0],
         nmpc["ubu"][1],

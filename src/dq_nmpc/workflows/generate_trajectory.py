@@ -15,7 +15,7 @@ def generate_trajectory(
 ) -> Path:
     """Generate a feasible quadrotor trajectory and write to CSV.
 
-    @param[in] config        TrajectoryConfig with shape, ts, mass, gravity, num_waypoints
+    @param[in] config        TrajectoryConfig with shape, control_update_interval, mass, gravity, num_waypoints
     @param[in] output        Output CSV path (defaults to out/{shape}/trajectory.csv)
     @return                  Path to the written CSV file
     """

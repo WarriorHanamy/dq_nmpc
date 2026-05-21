@@ -1,5 +1,8 @@
 shape: circle
-ts: 0.03
+control_update_interval: 0.03
 mass: 1.0
 gravity: 9.80665
+ixx: 0.00305587
+iyy: 0.00159695
+izz: 0.00485
 num_waypoints: 10

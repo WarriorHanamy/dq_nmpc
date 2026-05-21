@@ -40,6 +40,9 @@ TRAJECTORY_CSV_COLUMNS: tuple[str, ...] = (
     "wy",
     "wz",
     "thrust",
+    "torque_x",
+    "torque_y",
+    "torque_z",
 )
 
 
@@ -49,6 +52,18 @@ def csv_column_index(name: str) -> int:
     Raises ValueError if the name is not a recognized column.
     """
     return TRAJECTORY_CSV_COLUMNS.index(name)
+
+
+# NMPC OCP parameter vector layout
+NMPC_REF_DIM = 18  # nx(14) + nu(4) — per shooting-node reference
+COST_PARAMS_DIM = 32  # nx(14) + nx(14) + nu(4) — trailing constants in p
+NMPC_OCP_P_DIM = 50  # NMPC_REF_DIM + COST_PARAMS_DIM — full runtime p vector
+
+# ref_params[18] sub-layout
+NMPC_REF_DQ_SLICE = slice(0, 8)
+NMPC_REF_OMEGA_SLICE = slice(8, 11)
+NMPC_REF_VEL_SLICE = slice(11, 14)
+NMPC_REF_UNOM_SLICE = slice(14, 18)
 
 
 # Ordered control input layout — defines u[0], u[1], u[2], u[3] semantics.
@@ -102,7 +117,9 @@ class NMPCParams(BaseModel):
     ubu: list[float] = Field(min_length=4, max_length=4)
     horizon_steps: int = Field(default=10, gt=0)
     horizon_time: float = Field(default=1.0, gt=0.0)
-    ts: float = Field(default=0.01, gt=0.0, description="Sample time [s]")
+    control_update_interval: float = Field(
+        default=0.01, gt=0.0, description="MPC control-loop period [s]"
+    )
 
     @model_validator(mode="after")
     def _check_lengths_match_dims(self):
@@ -162,7 +179,7 @@ class NMPCConfig(BaseModel):
                 "ubu": self.nmpc.ubu,
                 "lbu": self.nmpc.lbu,
                 "horizon_steps": self.nmpc.horizon_steps,
-                "ts": self.nmpc.ts,
+                "control_update_interval": self.nmpc.control_update_interval,
                 "horizon_time": self.nmpc.horizon_time,
                 "nx": self.nmpc.nx,
                 "nu": self.nmpc.nu,
@@ -523,9 +540,12 @@ class TrajectoryConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     shape: str = Field(default="circle", description="Trajectory shape")
-    ts: float = Field(gt=0.0, description="Sample time, shared with NMPC [s]")
+    control_update_interval: float = Field(gt=0.0, description="MPC control-loop period [s]")
     mass: float = Field(gt=0.0, description="Flatness model mass [kg]")
     gravity: float = Field(default=9.80665, gt=0.0, description="Gravity [m/s²]")
+    ixx: float = Field(gt=0.0, description="Inertia about body X [kg·m²]")
+    iyy: float = Field(gt=0.0, description="Inertia about body Y [kg·m²]")
+    izz: float = Field(gt=0.0, description="Inertia about body Z [kg·m²]")
     num_waypoints: int = Field(default=10, gt=1, description="Number of intermediate waypoints")
 
     @classmethod

@@ -62,6 +62,9 @@ def load_trajectory_csv(path: str | Path) -> ReferenceTrajectory:
                 wy=float(row["wy"]),
                 wz=float(row["wz"]),
                 thrust=float(row["thrust"]),
+                torque_x=float(row.get("torque_x", 0.0)),
+                torque_y=float(row.get("torque_y", 0.0)),
+                torque_z=float(row.get("torque_z", 0.0)),
             )
             points.append(tp)
     return ReferenceTrajectory(points=points, horizon_steps=len(points))
@@ -73,12 +76,14 @@ def load_trajectory_meta(path: str | Path) -> dict[str, str]:
 
 
 def validate_trajectory_ts(csv_path: str | Path, config: NMPCConfig) -> None:
-    """Verify trajectory sample time matches NMPC config."""
+    """Verify trajectory control update interval matches NMPC config."""
     meta = _parse_csv_meta(Path(csv_path))
-    ts_csv = float(meta.get("ts", 0.0))
-    ts_nmpc = config.nmpc.ts
-    if abs(ts_csv - ts_nmpc) > 1e-6:
-        raise ValueError(f"ts mismatch: trajectory={ts_csv} vs nmpc config={ts_nmpc}")
+    dt_csv = float(meta.get("control_update_interval", 0.0))
+    dt_nmpc = config.nmpc.control_update_interval
+    if abs(dt_csv - dt_nmpc) > 1e-6:
+        raise ValueError(
+            f"control_update_interval mismatch: trajectory={dt_csv} vs nmpc config={dt_nmpc}"
+        )
 
 
 def load_trajectory_npz(path: str | Path) -> Any:
@@ -147,13 +152,13 @@ def _get_snap(traj7: Any, t_global: float) -> np.ndarray:
 def reinterpret_minco_trajectory(
     traj7: Any,
     config: NMPCConfig,
-    ts: float,
+    control_dt: float,
     *,
     zero_yaw: bool = True,
 ) -> FlatnessTrajectory:
     """Reinterpret a minco Trajectory7 into a full FlatnessTrajectory.
 
-    Samples the piecewise-polynomial trajectory at ``ts`` intervals and
+    Samples the piecewise-polynomial trajectory at ``control_dt`` intervals and
     computes the complete flatness decomposition analytically via
     a CasADi-compiled function:
 
@@ -166,11 +171,11 @@ def reinterpret_minco_trajectory(
     When ``zero_yaw=True`` (default), yaw and its derivatives are set to
     zero throughout.  The drone keeps a fixed heading.
 
-    @param[in] traj7     minco.poly_traj.Trajectory7 instance
-    @param[in] config    NMPCConfig providing mass, Ixx, Iyy, Izz, gravity
-    @param[in] ts        Sample time [s]
-    @param[in] zero_yaw  Force yaw/yaw_dot/yaw_ddot to zero (default True)
-    @return              FlatnessTrajectory with all 14 reference arrays
+    @param[in] traj7      minco.poly_traj.Trajectory7 instance
+    @param[in] config     NMPCConfig providing mass, Ixx, Iyy, Izz, gravity
+    @param[in] control_dt MPC control-loop period [s]
+    @param[in] zero_yaw   Force yaw/yaw_dot/yaw_ddot to zero (default True)
+    @return               FlatnessTrajectory with all 14 reference arrays
     """
     _eps = 1e-10
     flatness_fn = _get_flatness_fn()
@@ -182,7 +187,7 @@ def reinterpret_minco_trajectory(
     gravity_v = config.gravity
 
     duration = float(traj7.total_duration)
-    num_pts = int(duration / ts) + 1
+    num_pts = int(duration / control_dt) + 1
     if num_pts < 2:
         num_pts = 2
     t_vec = np.linspace(0.0, duration, num_pts, dtype=np.float64)

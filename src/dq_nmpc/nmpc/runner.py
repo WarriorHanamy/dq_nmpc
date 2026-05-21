@@ -23,7 +23,15 @@ import numpy as np
 
 from dq_nmpc.nmpc.drone_visualizer import DroneVisualizer
 from dq_nmpc.nmpc.se3_controller import se3_control
-from dq_nmpc.schema import FlatnessTrajectory, NMPCConfig, OutputPaths, Se3Config, control_index
+from dq_nmpc.schema import (
+    COST_PARAMS_DIM,
+    NMPC_REF_UNOM_SLICE,
+    FlatnessTrajectory,
+    NMPCConfig,
+    OutputPaths,
+    Se3Config,
+    control_index,
+)
 
 try:
     from quadrotor_sim.shm import (
@@ -66,7 +74,7 @@ def run_nmpc(
 
     mass = params["mass"]
     gravity = params["gravity"]
-    ts = params["nmpc"]["ts"]
+    control_dt = params["nmpc"]["control_update_interval"]
 
     if planner:
         from dq_nmpc.nmpc.planner import get_flatness_trajectory
@@ -77,7 +85,7 @@ def run_nmpc(
             t_initial=2.0,
             t_trajectory=10.0,
             t_final=2.0,
-            sample_time=ts,
+            sample_time=control_dt,
             radius=2.0,
             angular_speed=0.5,
         )
@@ -113,7 +121,7 @@ def run_nmpc(
             )
 
             traj7 = load_trajectory_npz(trajectory_path)
-            traj = reinterpret_minco_trajectory(traj7, config, ts)
+            traj = reinterpret_minco_trajectory(traj7, config, control_dt)
             first_pos = traj.ref_pos[0].astype(np.float64).ravel()
             viz_traj = traj
             logger.info(
@@ -190,7 +198,7 @@ def run_nmpc(
     K_w = np.array(se3_config.K_w, dtype=np.float64)
     convergence_threshold = 0.05
 
-    dt_ns = int(ts * 1e9)
+    dt_ns = int(control_dt * 1e9)
     next_wake = time.monotonic_ns()
 
     def _se3_converge(target_pos: np.ndarray, target_label: str) -> bool:
@@ -310,10 +318,9 @@ def run_nmpc(
     from dq_nmpc.nmpc.ocp_setup import solver as create_solver
 
     N_horizon = config.nmpc.horizon_steps
-    nx = config.nmpc.nx
-    nu = config.nmpc.nu
-    cost_len = nx + nx + nu
-    cost_params = np.ones(cost_len, dtype=np.float64)
+    horizon_time = config.nmpc.horizon_time
+    Tsim = horizon_time / N_horizon
+    cost_params = np.ones(COST_PARAMS_DIM, dtype=np.float64)
 
     def _shm_to_solver_x0(buf) -> np.ndarray:
         pos = np.array(buf.position[:], dtype=np.float64).ravel()
@@ -340,7 +347,7 @@ def run_nmpc(
         dq = DualQuaternion.from_pose(quat=quat_k, trans=trans_h)
         dq_vec = np.concatenate([dq.Qr.get, dq.Qd.get], axis=0).ravel()
 
-        u_nom = np.zeros(nu, dtype=np.float64)
+        u_nom = np.zeros(4, dtype=np.float64)
         u_nom[control_index("thrust")] = thrust_k
         u_nom[control_index("tau_x")] = torque_k[0]
         u_nom[control_index("tau_y")] = torque_k[1]
@@ -364,15 +371,19 @@ def run_nmpc(
         idx = min(i, traj_len - 1)
         p_ref = _traj_step_to_ref_params(idx)
         solver.set(i, "p", np.concatenate([p_ref, cost_params]))
-        solver.set(i, "u", p_ref[nx : nx + nu].copy())
+        solver.set(i, "u", p_ref[NMPC_REF_UNOM_SLICE].copy())
 
-    dt_ns = int(ts * 1e9)
+    dt_ns = int(control_dt * 1e9)
     next_wake = time.monotonic_ns()
     k = 0
-    logger.info("NMPC loop start — tracking %d trajectory points", traj_len)
+    traj_duration = float(traj.t[-1])
+    end_time = traj_duration + horizon_time
+    logger.info(
+        "NMPC loop start — tracking %.2f s trajectory (horizon=%.2f s)", traj_duration, horizon_time
+    )
 
     try:
-        while k < traj_len - N_horizon:
+        while k * control_dt < end_time:
             while not state_reader.read(state_buf):
                 time.sleep(0.0001)
 
@@ -381,7 +392,9 @@ def run_nmpc(
             solver.set(0, "ubx", x0)
 
             for i in range(N_horizon):
-                idx = min(k + i, traj_len - 1)
+                t_shoot = k * control_dt + i * Tsim
+                idx = int(t_shoot / control_dt)
+                idx = min(idx, traj_len - 1)
                 p_ref = _traj_step_to_ref_params(idx)
                 solver.set(i, "p", np.concatenate([p_ref, cost_params]))
 
@@ -425,7 +438,12 @@ def run_nmpc(
             )
 
             viz.log_nmpc_reference(target_pos)
-            horizon_pts = [tuple(traj.ref_pos[min(k + i, traj_len - 1)]) for i in range(N_horizon)]
+            horizon_pts = [
+                tuple(
+                    traj.ref_pos[min(int((k * control_dt + i * Tsim) / control_dt), traj_len - 1)]
+                )
+                for i in range(N_horizon)
+            ]
             viz.log_nmpc_horizon(horizon_pts)
             viz.log_nmpc_stats(
                 solve_ms=solve_ms,

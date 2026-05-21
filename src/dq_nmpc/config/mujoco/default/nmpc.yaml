@@ -19,13 +19,13 @@ nmpc:
   nu: 4
   lbu: [0.2, -0.45, -0.45, -0.45]
   ubu: [42.0, 0.45, 0.45, 0.45]
-  # MPC control-loop period: replan every ts seconds.
+  # MPC control-loop period: replan every control_update_interval seconds.
   # Independent from the OCP shooting interval Tsim.
-  ts: 0.03
+  control_update_interval: 0.03
 
   # OCP prediction horizon total duration [s] (= ocp.solver_options.tf).
   # Tsim = horizon_time / horizon_steps is computed by acados internally
-  # and does not need to equal ts.  This allows a longer look-ahead
+  # and does not need to equal control_update_interval.  This allows a longer look-ahead
   # while keeping a high control update rate.
   horizon_time: 1.5
 

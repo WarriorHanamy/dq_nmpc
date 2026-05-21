@@ -81,12 +81,20 @@ def visualize_trajectory(
 
     v_norm = np.linalg.norm(vel, axis=1)
 
+    # Read torque from CSV if columns exist
+    torque = None
+    try:
+        torque = data[:, _i("torque_x") : _i("torque_z") + 1]
+    except ValueError:
+        pass
+
     fig = make_subplots(
-        rows=6,
+        rows=7,
         cols=2,
         column_widths=[0.55, 0.45],
         specs=[
-            [{"type": "scene", "rowspan": 6}, {"type": "xy"}],
+            [{"type": "scene", "rowspan": 7}, {"type": "xy"}],
+            [None, {"type": "xy"}],
             [None, {"type": "xy"}],
             [None, {"type": "xy"}],
             [None, {"type": "xy"}],
@@ -101,8 +109,9 @@ def visualize_trajectory(
             "Jerk [m/s³]",
             "Snap [m/s⁴]",
             "Thrust [N]",
+            "Torque [N·m]",
         ),
-        vertical_spacing=0.05,
+        vertical_spacing=0.04,
     )
 
     # --- Left panel: 3D trajectory ---
@@ -304,6 +313,22 @@ def visualize_trajectory(
         col=2,
     )
 
+    # --- Row 7: torque ---
+    if torque is not None:
+        tau_labels = ["τx [N·m]", "τy [N·m]", "τz [N·m]"]
+        for i in range(3):
+            fig.add_trace(
+                go.Scatter(
+                    x=t,
+                    y=torque[:, i],
+                    name=tau_labels[i],
+                    line=dict(width=1.5),
+                    legendgroup="torque",
+                ),
+                row=7,
+                col=2,
+            )
+
     # Layout
     fig.update_layout(
         title=dict(
@@ -320,12 +345,13 @@ def visualize_trajectory(
         legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=1.02),
     )
 
-    fig.update_xaxes(title_text="Time [s]", row=6, col=2)
+    fig.update_xaxes(title_text="Time [s]", row=7, col=2)
     fig.update_yaxes(title_text="[m/s] / [rad/s]", row=2, col=2)
     fig.update_yaxes(title_text="[m/s²]", row=3, col=2)
     fig.update_yaxes(title_text="[m/s³]", row=4, col=2)
     fig.update_yaxes(title_text="[m/s⁴]", row=5, col=2)
     fig.update_yaxes(title_text="[N]", row=6, col=2)
+    fig.update_yaxes(title_text="[N·m]", row=7, col=2)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.write_html(str(output_path))
