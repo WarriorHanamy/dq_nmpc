@@ -1,5 +1,6 @@
 # acados generated C code
 c_generated_code/
+c_generated_*/
 
 # Python
 __pycache__/
@@ -40,5 +41,6 @@ trajectory.csv
 trajectory.html
 acados_ocp_mcp.json
 acados_ocp_mpc.json
+acados*.json
 
 .opencode/

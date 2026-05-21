@@ -79,7 +79,7 @@ def validate_trajectory_ts(csv_path: str | Path, config: NMPCConfig) -> None:
     """Verify trajectory control update interval matches NMPC config."""
     meta = _parse_csv_meta(Path(csv_path))
     dt_csv = float(meta.get("control_update_interval", 0.0))
-    dt_nmpc = config.nmpc.control_update_interval
+    dt_nmpc = config.ocp.control_update_interval
     if abs(dt_csv - dt_nmpc) > 1e-6:
         raise ValueError(
             f"control_update_interval mismatch: trajectory={dt_csv} vs nmpc config={dt_nmpc}"
@@ -180,11 +180,12 @@ def reinterpret_minco_trajectory(
     _eps = 1e-10
     flatness_fn = _get_flatness_fn()
 
-    mass_v = config.mass
-    Ixx_v = config.ixx
-    Iyy_v = config.iyy
-    Izz_v = config.izz
-    gravity_v = config.gravity
+    p = config.physics
+    mass_v = p.mass
+    Ixx_v = p.ixx
+    Iyy_v = p.iyy
+    Izz_v = p.izz
+    gravity_v = p.gravity
 
     duration = float(traj7.total_duration)
     num_pts = int(duration / control_dt) + 1

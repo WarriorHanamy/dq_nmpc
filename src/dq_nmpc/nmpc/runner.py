@@ -71,9 +71,9 @@ def run_nmpc(
         se3_config = Se3Config()
         logger.info("SE3 config: defaults")
 
-    mass = config.mass
-    gravity = config.gravity
-    control_dt = config.nmpc.control_update_interval
+    mass = config.physics.mass
+    gravity = config.physics.gravity
+    control_dt = config.ocp.control_update_interval
 
     if planner:
         from dq_nmpc.nmpc.planner import get_flatness_trajectory
@@ -316,8 +316,8 @@ def run_nmpc(
     from dq_nmpc.math.dual_quaternion import DualQuaternion
     from dq_nmpc.nmpc.ocp_setup import solver as create_solver
 
-    N_horizon = config.nmpc.horizon_steps
-    horizon_time = config.nmpc.horizon_time
+    N_horizon = config.ocp.horizon_steps
+    horizon_time = config.ocp.horizon_time
     Tsim = horizon_time / N_horizon
     cost_params = np.ones(COST_PARAMS_DIM, dtype=np.float64)
 
@@ -356,7 +356,7 @@ def run_nmpc(
     logger.info("Loading acados solver from c_generated_code/ …")
     solver, _ocp = create_solver(config, codegen=False)
     logger.info(
-        "acados solver loaded (horizon=%d steps, %.2f s)", N_horizon, config.nmpc.horizon_time
+        "acados solver loaded (horizon=%d steps, %.2f s)", N_horizon, config.ocp.horizon_time
     )
 
     traj_len = len(traj.t)

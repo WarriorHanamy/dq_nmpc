@@ -1,17 +1,18 @@
 """Acados OCP solver factory.
 
 Single public function: ``solver(config, *, codegen=True)``.
-Reads all configuration from ``NMPCConfig`` schema fields.
+Reads all configuration from ``NMPCConfig`` schema fields;
+cost terms are imported from ``dq_functions.py`` as compiled CasADi Functions.
 """
 
 from __future__ import annotations
-
-from types import SimpleNamespace
 
 import numpy as np
 from acados_template import AcadosOcp, AcadosOcpSolver
 from casadi import MX, vertcat
 
+from dq_nmpc.math.dq_algebra import dualquat_mul_conj, log_map_dualquat
+from dq_nmpc.math.dq_functions import make_body_to_inertial_rotation
 from dq_nmpc.nmpc.dynamics import export_acados_model
 from dq_nmpc.schema import (
     CONTROL_INPUT,
@@ -26,24 +27,7 @@ from dq_nmpc.schema import (
 
 __all__ = ["solver"]
 
-
-def _build_model(config: NMPCConfig) -> SimpleNamespace:
-    """Build acados model and CasADi function bundle from config.
-
-    @return  SimpleNamespace with: model, constraint, dual_error,
-             ln, rotation, conjugate, Ad
-    """
-    params = config.to_params_dict()
-    m, _, _, c, err, dual, logmap, Ad, conj, rot = export_acados_model(params)
-    return SimpleNamespace(
-        model=m,
-        constraint=c,
-        dual_error=dual,
-        ln=logmap,
-        rotation=rot,
-        conjugate=conj,
-        Ad=Ad,
-    )
+BODY_TO_INERTIAL_FN = make_body_to_inertial_rotation()
 
 
 def solver(
@@ -57,60 +41,62 @@ def solver(
     @param[in] codegen  Build and generate C code (True) or load existing (False)
     @return  (acados_solver, ocp)
     """
-    nmpc = config.nmpc
-    ubu = np.array(nmpc.ubu, dtype=np.float64)
-    lbu = np.array(nmpc.lbu, dtype=np.float64)
+    ocp_cfg = config.ocp
+    ubu = np.array(ocp_cfg.ubu, dtype=np.float64)
+    lbu = np.array(ocp_cfg.lbu, dtype=np.float64)
+    Qp = np.array(ocp_cfg.Q, dtype=np.float64)
+    Rp = np.array(ocp_cfg.R, dtype=np.float64)
 
-    m = _build_model(config)
-
-    x0 = np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    m = export_acados_model(config)
 
     ocp = AcadosOcp()
     ocp.code_export_directory = "c_generated_code"
 
     ocp.model = m.model
     ocp.p = m.model.p
-    ocp.dims.N = nmpc.horizon_steps
+    ocp.dims.N = ocp_cfg.horizon_steps
 
     ocp.cost.cost_type = "EXTERNAL"
     ocp.cost.cost_type_e = "EXTERNAL"
 
-    R = MX.zeros(4, 4)
-    for i, name in enumerate(CONTROL_INPUT):
-        R[i, i] = 20 / ubu[i] if "thrust" in name else 60 / ubu[i]
+    R_ctrl = MX.zeros(4, 4)
+    for i in range(4):
+        R_ctrl[i, i] = Rp[i]
 
     dual_d = ocp.p[NMPC_REF_DQ_SLICE]
     dual = m.model.x[0:8]
-    dq_err = m.dual_error(dual_d, dual)
-    ln_full = m.ln(dq_err)
+    u_nom = ocp.p[NMPC_REF_UNOM_SLICE]
+    u = m.model.u
+    w_b_d = ocp.p[NMPC_REF_OMEGA_SLICE]
+    w_b = m.model.x[8:11]
+    v_i_d = ocp.p[NMPC_REF_VEL_SLICE]
+    v_b = m.model.x[11:14]
+    v_i = BODY_TO_INERTIAL_FN(m.model.x[0:4], v_b)
+
+    dq_err = dualquat_mul_conj(dual_d, dual)
+    ln_full = log_map_dualquat(dq_err)
     ln_err = vertcat(ln_full[1:4], ln_full[5:8])
 
-    u_nom = ocp.p[NMPC_REF_UNOM_SLICE]
-    err_u = u_nom - m.model.u[0:4]
-
-    w_b = m.model.x[8:11]
-    v_b = m.model.x[11:14]
-    v_i = m.rotation(m.model.x[0:4], v_b)
-    w_b_d = ocp.p[NMPC_REF_OMEGA_SLICE]
-    v_i_d = ocp.p[NMPC_REF_VEL_SLICE]
-    err_w = w_b - w_b_d
-    err_v = v_i - v_i_d
-
-    Q_l = MX.zeros(6, 6)
+    Q_pose = MX.zeros(6, 6)
     for i in range(3):
-        Q_l[i, i] = 0.5
-    for i in range(3, 6):
-        Q_l[i, i] = 2.0
+        Q_pose[i, i] = Qp[1 + i]
+        Q_pose[i + 3, i + 3] = Qp[5 + i]
 
-    ocp.model.cost_expr_ext_cost = (
-        10 * (ln_err.T @ Q_l @ ln_err)
-        + 1 * (err_u.T @ R @ err_u)
-        + 1 * (err_w.T @ err_w)
-        + 1 * (err_v.T @ err_v)
-    )
-    ocp.model.cost_expr_ext_cost_e = (
-        10 * (ln_err.T @ Q_l @ ln_err) + 1 * (err_w.T @ err_w) + 1 * (err_v.T @ err_v)
-    )
+    pose_cost = ln_err.T @ Q_pose @ ln_err
+    ctrl_cost = (u_nom - u).T @ R_ctrl @ (u_nom - u)
+
+    Q_angvel = MX.zeros(3, 3)
+    for i in range(3):
+        Q_angvel[i, i] = Qp[8 + i]
+
+    Q_vel = MX.zeros(3, 3)
+    for i in range(3):
+        Q_vel[i, i] = Qp[11 + i]
+    angvel_cost = (w_b - w_b_d).T @ Q_angvel @ (w_b - w_b_d)
+    vel_cost = (v_i - v_i_d).T @ Q_vel @ (v_i - v_i_d)
+
+    ocp.model.cost_expr_ext_cost = pose_cost + ctrl_cost + angvel_cost + vel_cost
+    ocp.model.cost_expr_ext_cost_e = pose_cost + angvel_cost + vel_cost
 
     ref_params = np.zeros(NMPC_REF_DIM, dtype=np.float64)
     ref_params[0] = 1.0
@@ -120,29 +106,31 @@ def solver(
     ocp.constraints.lbu = lbu.copy()
     ocp.constraints.ubu = ubu.copy()
     ocp.constraints.idxbu = np.arange(len(CONTROL_INPUT))
-    ocp.constraints.x0 = x0
-
-    ocp.model.con_h_expr = m.constraint.expr
-    nh = m.constraint.expr.shape[0]
-    ns = nh
-    ocp.cost.zl = 100 * np.ones(ns)
-    ocp.cost.Zl = 100 * np.ones(ns)
-    ocp.cost.Zu = 100 * np.ones(ns)
-    ocp.cost.zu = 100 * np.ones(ns)
-    ocp.constraints.lh = np.array([m.constraint.min])
-    ocp.constraints.uh = np.array([m.constraint.max])
-    ocp.constraints.lsh = np.zeros(ns)
-    ocp.constraints.ush = np.zeros(ns)
-    ocp.constraints.idxsh = np.arange(ns)
+    ocp.constraints.x0 = ref_params[: m.model.x.rows()]
 
     ocp.solver_options.qp_solver = "FULL_CONDENSING_HPIPM"
-    ocp.solver_options.qp_solver_cond_N = nmpc.horizon_steps // 4
+    ocp.solver_options.qp_solver_cond_N = ocp_cfg.horizon_steps // 4
     ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
-    ocp.solver_options.regularize_method = "CONVEXIFY"
-    ocp.solver_options.integrator_type = "IRK"
+    ocp.solver_options.integrator_type = "IRK"  # Implicit Runge-Kutta (IRK)
+
+    ## Regularization (stabilizes optimization)
+    ocp.solver_options.regularize_method = "NO_REGULARIZE"
     ocp.solver_options.nlp_solver_type = "SQP_RTI"
-    ocp.solver_options.Tsim = nmpc.control_update_interval
-    ocp.solver_options.tf = nmpc.horizon_time
+    ocp.solver_options.Tsim = ocp_cfg.control_update_interval
+    ocp.solver_options.tf = ocp_cfg.horizon_time
+
+    ## Compilation flags for external functions (optional for performance)
+    ocp.solver_options.ext_fun_compile_flags = "-Ofast -march=native"
+    ocp.solver_options.hpipm_mode = "SPEED"  # Prioritize speed in QP solver
+
+    # Parallelization
+    ocp.solver_options.cg_use_openmp = True  # Enable OpenMP parallelization
+    ocp.solver_options.cg_hardcode_constraints = False  # Allow runtime constraint changes
+    ocp.solver_options.cg_use_variable_weighting_matrix = True  # Support time-varying costs
+
+    ocp.solver_options.sim_method_num_stages = 4  # IRK-GL4: 4 stages for accuracy
+    ocp.solver_options.sim_method_num_steps = 1  # Number of integration steps
+    ocp.solver_options.sim_method_newton_iter = 2  # Newton iterations for convergence
 
     acados_solver = AcadosOcpSolver(
         ocp, json_file="acados_ocp_mpc.json", build=codegen, generate=codegen

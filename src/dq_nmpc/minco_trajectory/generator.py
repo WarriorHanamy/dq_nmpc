@@ -14,7 +14,7 @@ import numpy as np
 from dq_nmpc.minco_trajectory.flatness_casadi import make_flatness_casadi
 from dq_nmpc.minco_trajectory.visualization import visualize_trajectory
 from dq_nmpc.minco_trajectory.waypoints import make_sfc_box, waypoints_for_shape
-from dq_nmpc.schema import TRAJECTORY_CSV_COLUMNS, OutputPaths, TrajectoryConfig
+from dq_nmpc.schema import TRAJECTORY_CSV_COLUMNS, OutputPaths, PhysicsParams, TrajectoryConfig
 
 _GCONFIG_ROOT = (
     Path(__file__).resolve().parents[3] / "src" / "dq_nmpc" / "config" / "mujoco" / "default"
@@ -121,6 +121,7 @@ def _sample_trajectory(
 
 def generate_trajectory(
     config: TrajectoryConfig,
+    physics: PhysicsParams,
     output: str | Path | None = None,
 ) -> Path:
     if output is None:
@@ -179,11 +180,11 @@ def generate_trajectory(
     rows = _sample_trajectory(
         traj7,
         config.control_update_interval,
-        config.mass,
-        config.gravity,
-        config.ixx,
-        config.iyy,
-        config.izz,
+        physics.mass,
+        physics.gravity,
+        physics.ixx,
+        physics.iyy,
+        physics.izz,
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)

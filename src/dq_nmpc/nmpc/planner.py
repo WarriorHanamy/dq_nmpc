@@ -631,11 +631,11 @@ def get_flatness_trajectory(
     t : (N,) ndarray
         Time vector [s].
     """
-    m = params.mass
-    Jxx = params.ixx
-    Jyy = params.iyy
-    Jzz = params.izz
-    g = params.gravity
+    m = params.physics.mass
+    Jxx = params.physics.ixx
+    Jyy = params.physics.iyy
+    Jzz = params.physics.izz
+    g = params.physics.gravity
     J = np.array([[Jxx, 0.0, 0.0], [0.0, Jyy, 0.0], [0.0, 0.0, Jzz]])
 
     Zw = np.array([[0.0], [0.0], [1.0]])

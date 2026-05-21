@@ -56,3 +56,6 @@ ignore = ["E501", "N802", "N803", "N806", "N817"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "acados: tests requiring acados OCP solver",
+]

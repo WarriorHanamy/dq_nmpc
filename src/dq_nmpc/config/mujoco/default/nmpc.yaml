@@ -2,16 +2,16 @@
 # NMPC Solver Configuration
 # Standalone -- no ROS dependency
 
-# dynamics
 mav_name: "quadrotor"
-gravity: 9.80665
-mass: 1.0
-ixx: 0.00305587
-iyy: 0.00159695
-izz: 0.00159687
 
-# nmpc solver parameters
-nmpc:
+physics:
+  mass: 1.0
+  gravity: 9.81
+  ixx: 0.00305587
+  iyy: 0.00159695
+  izz: 0.00159687
+
+ocp:
   Q:   [210., 210., 210., 250., 1., 1., 1., 5., 5., 5., 5., 1., 1., 1.]
   Q_e: [210., 210., 210., 250., 1., 1., 1., 5., 5., 5., 5., 1., 1., 1.]
   R:   [0.7, 0.1, 0.1, 0.1]
@@ -19,14 +19,15 @@ nmpc:
   nu: 4
   lbu: [0.2, -0.45, -0.45, -0.45]
   ubu: [42.0, 0.45, 0.45, 0.45]
+
   # MPC control-loop period: replan every control_update_interval seconds.
   # Independent from the OCP shooting interval Tsim.
   control_update_interval: 0.03
 
   # OCP prediction horizon total duration [s] (= ocp.solver_options.tf).
   # Tsim = horizon_time / horizon_steps is computed by acados internally
-  # and does not need to equal control_update_interval.  This allows a longer look-ahead
-  # while keeping a high control update rate.
+  # and does not need to equal control_update_interval.  This allows a
+  # longer look-ahead while keeping a high control update rate.
   horizon_time: 1.5
 
   # Number of shooting nodes (= ocp.dims.N).

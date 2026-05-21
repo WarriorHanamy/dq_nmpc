@@ -11,7 +11,7 @@ ROS 2 is an optional adapter layer (Docker-based).
 ```
 src/dq_nmpc/
 ├── schema.py                 # SINGLE SOURCE OF TRUTH: all frozen Pydantic models
-│                              #   Models: NMPCConfig, NMPCParams, ControlCommand,
+│                              #   Models: NMPCConfig, OCPParams, PhysicsParams, ControlCommand,
 │                              #     DualQuaternionState, ClassicalState,
 │                              #     TrajectoryPoint, ReferenceTrajectory,
 │                              #     SHMConfig, TrajectoryConfig, Se3Config,
@@ -42,8 +42,7 @@ src/dq_nmpc/
 │   ├── dq_algebra.py         # symbolic DQ algebra on raw CasADi arrays
 │   ├── dq_functions.py       # CasADi Function factories (dualquat_from_pose, etc.)
 │   ├── quat_helpers.py       # quaternion-level CasADi helpers
-│   ├── polynomial.py         # order-9 polynomial basis for min-snap
-│   └── test_smoke.py         # import + construction smoke test
+│   └── polynomial.py         # order-9 polynomial basis for min-snap
 │
 ├── nmpc/                     # NMPC solver — requires acados
 │   ├── dynamics.py           # Quadrotor ODE, DQ kinematics, flatness
@@ -51,15 +50,13 @@ src/dq_nmpc/
 │   ├── planner.py            # Flatness-based reference computation
 │   ├── runner.py             # SE3 bootstrap → NMPC runtime loop (run_nmpc)
 │   ├── se3_controller.py     # SE(3) geometric controller (Lee et al. 2010)
-│   ├── drone_visualizer.py   # DroneVisualizer — Rerun live + offline recorder
-│   └── test_smoke.py         # import + model shape smoke test
+│   └── drone_visualizer.py   # DroneVisualizer — Rerun live + offline recorder
 │
 ├── minco_trajectory/         # minco-python integration
 │   ├── generator.py          # GCOPTER optimize → sample flatness → write CSV
 │   ├── loader.py             # read CSV → ReferenceTrajectory
 │   ├── waypoints.py          # SHAPES, waypoints_for_shape(), make_sfc_box()
-│   ├── visualization.py      # Plotly interactive trajectory plots
-│   └── test_smoke.py         # loader roundtrip smoke test
+│   └── visualization.py      # Plotly interactive trajectory plots
 │
 └── config/mujoco/default/    # YAML parameter files (nmpc.yaml)
 
@@ -164,11 +161,22 @@ Publishes `/odom` (from SHM state), subscribes to `/cmd` (writes SHM control).
 
 ## Develop
 
-```
+```bash
 uv run ruff check src/ tests/       # lint
 uv run ruff check --fix src/ tests/ # auto-fix
-uv run pytest -v                    # run tests (14 tests, no acados needed)
+uv run pytest -v                    # run all tests (14 tests, no acados needed)
+uv run pytest -v -m acados          # include NMPC solvability tests (requires acados)
+uv run pytest -v -m "not acados"    # skip acados-dependent tests
 ```
+
+---
+
+## Testing
+
+- All test files live in ``tests/test_*.py``, discovered by pytest automatically.
+- Integration tests that require acados are tagged with ``@pytest.mark.acados``.
+- The ``acados`` marker is registered in ``pyproject.toml`` under ``tool.pytest.ini_options.markers``.
+- No test files should live under ``src/*/test_smoke.py``; move them to ``tests/`` or delete.
 
 ---
 
@@ -212,7 +220,7 @@ Schemas live in `src/dq_nmpc/schema.py`. Every schema has:
 - `from_array(arr) -> cls` — deserialize from numpy
 - Field-level validation (e.g., `thrust >= 0`, `mass > 0`)
 
-The `NMPCConfig` schema wraps YAML parameter files with validation. Use `NMPCConfig.from_yaml(path)` to load and `config.to_params_dict()` to produce the dict expected by the solver (`solver(params, flag=True)`).
+The `NMPCConfig` schema wraps YAML parameter files with validation. Use `NMPCConfig.from_yaml(path)` to load and pass directly to `solver(config, codegen=True)`.
 
 ---
 

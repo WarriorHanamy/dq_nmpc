@@ -99,8 +99,20 @@ def control_name(idx: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-class NMPCParams(BaseModel):
-    """NMPC solver hyperparameters.
+class PhysicsParams(BaseModel):
+    """Physical parameters shared across NMPC config and trajectory config."""
+
+    model_config = ConfigDict(frozen=True)
+
+    mass: float = Field(gt=0.0, description="Mass [kg]")
+    gravity: float = Field(default=9.80665, gt=0.0, description="Gravity [m/s^2]")
+    ixx: float = Field(gt=0.0, description="Inertia about body X [kg·m^2]")
+    iyy: float = Field(gt=0.0, description="Inertia about body Y [kg·m^2]")
+    izz: float = Field(gt=0.0, description="Inertia about body Z [kg·m^2]")
+
+
+class OCPParams(BaseModel):
+    """OCP solver hyperparameters.
 
     Every fixed-size array uses list[float] with exact max_length.
     Cross-field validation ensures Q/Q_e match nx and R/lbu/ubu match nu.
@@ -141,50 +153,16 @@ class NMPCConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    mass: float = Field(gt=0.0, description="Mass [kg]")
-    gravity: float = Field(default=9.80665, gt=0.0, description="Gravity [m/s^2]")
-    ixx: float = Field(gt=0.0, description="Inertia about x [kg·m^2]")
-    iyy: float = Field(gt=0.0, description="Inertia about y [kg·m^2]")
-    izz: float = Field(gt=0.0, description="Inertia about z [kg·m^2]")
     mav_name: str = Field(default="quadrotor")
-    nmpc: NMPCParams
+    physics: PhysicsParams
+    ocp: OCPParams
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> NMPCConfig:
-        """Load and validate configuration from a YAML file.
-
-        Handles the ROS2 '/**/ros__parameters' nesting convention.
-        """
+        """Load and validate configuration from a YAML file."""
         with open(path, "r") as stream:
             raw = yaml.safe_load(stream)
-
-        if "/**" in raw:
-            raw = raw["/**"]["ros__parameters"]
-
         return cls(**raw)
-
-    def to_params_dict(self) -> dict:
-        """Return a dict structured for the NMPC solver (backward-compatible)."""
-        return {
-            "mass": self.mass,
-            "gravity": self.gravity,
-            "ixx": self.ixx,
-            "iyy": self.iyy,
-            "izz": self.izz,
-            "mav_name": self.mav_name,
-            "nmpc": {
-                "Q": self.nmpc.Q,
-                "Q_e": self.nmpc.Q_e,
-                "R": self.nmpc.R,
-                "ubu": self.nmpc.ubu,
-                "lbu": self.nmpc.lbu,
-                "horizon_steps": self.nmpc.horizon_steps,
-                "control_update_interval": self.nmpc.control_update_interval,
-                "horizon_time": self.nmpc.horizon_time,
-                "nx": self.nmpc.nx,
-                "nu": self.nmpc.nu,
-            },
-        }
 
 
 class ControlCommand(BaseModel):
@@ -541,11 +519,6 @@ class TrajectoryConfig(BaseModel):
 
     shape: str = Field(default="circle", description="Trajectory shape")
     control_update_interval: float = Field(gt=0.0, description="MPC control-loop period [s]")
-    mass: float = Field(gt=0.0, description="Flatness model mass [kg]")
-    gravity: float = Field(default=9.80665, gt=0.0, description="Gravity [m/s²]")
-    ixx: float = Field(gt=0.0, description="Inertia about body X [kg·m²]")
-    iyy: float = Field(gt=0.0, description="Inertia about body Y [kg·m²]")
-    izz: float = Field(gt=0.0, description="Inertia about body Z [kg·m²]")
     num_waypoints: int = Field(default=10, gt=1, description="Number of intermediate waypoints")
 
     @classmethod
