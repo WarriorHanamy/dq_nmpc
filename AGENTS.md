@@ -37,9 +37,7 @@ src/dq_nmpc/
 │   └── generate_trajectory.py
 │
 ├── math/                     # Pure math — no acados, no ROS, no SHM
-│   ├── dq_algebra.py         # symbolic DQ algebra on raw CasADi arrays
-│   ├── dq_functions.py       # CasADi Function factories + numpy helpers
-│   ├── quat_helpers.py       # quaternion-level CasADi helpers
+│   ├── dq_functions.py       # _expr functions + _ca_func wrappers + numpy helpers
 │   └── polynomial.py         # order-9 polynomial basis for min-snap
 │
 ├── nmpc/                     # NMPC solver — requires acados
@@ -178,17 +176,83 @@ uv run pytest -v -m "not acados"    # skip acados-dependent tests
 
 ---
 
-## CasADi Function Style
+## CasADi Architecture
 
-For each CasADi cost/constraint function:
+### Expression-first design
 
-- Define it through a `make_*` factory function.
-- Use explicit and descriptive symbolic variable names.
-- Keep Python variable names, MX/SX symbol names, and CasADi input/output names aligned.
-- Document all inputs and outputs with shape information in the docstring.
-- Use meaningful intermediate variable names instead of abbreviations.
-- Attach a short `.description` metadata string when the function is exposed externally.
-- Return a named `casadi.Function` with named input and output ports.
+All CasADi math follows a strict two-layer pattern:
+
+1. **`_expr` functions** — mathematical source of truth
+2. **`_ca_func` factories** — thin wrappers that call `_expr`
+
+No duplication: `_ca_func` factories must call `_expr`, never reimplement logic.
+
+### `_expr` expression functions
+
+Expression functions must:
+- Accept CasADi expressions (`ca.MX`, `ca.SX`, or `ca.DM`) and return CasADi expressions
+- NOT create symbolic variables internally
+- NOT return `ca.Function`
+- Use the `_expr` suffix (e.g. `dualquat_mul_conj_expr`, `log_map_dualquat_expr`)
+- Include type hints with `CasadiVec` / `CasadiMat` aliases from `type.py`
+- Include a docstring with mathematical meaning, I/O shapes, and assumptions
+  (e.g. unit quaternion, unit dual quaternion)
+
+```python
+from dq_nmpc.type import CasadiVec
+
+def dualquat_mul_conj_expr(qd: CasadiVec, q: CasadiVec) -> CasadiVec:
+    """DQ multiplicative error: conj(qd) * q via 8x8 Hamiltonian matrix.
+
+    @param[in] qd  (8,) desired dual quaternion [unit DQ]
+    @param[in] q   (8,) current dual quaternion [unit DQ]
+    @return        (8,) DQ error [unit DQ]
+    """
+    ...
+```
+
+### `_ca_func` wrappers
+
+Function wrappers must:
+- Only create symbolic inputs (via `MX.sym` or `SX.sym`)
+- Call the corresponding `_expr` function
+- Wrap result into `ca.Function` with named inputs/outputs
+- Never duplicate mathematical logic from `_expr`
+- Accept `symbolic_type: Literal["MX", "SX"] = "MX"`
+- Use `_ca_func` suffix (e.g. `dualquat_kinematics_ca_func`, `inertial_to_body_rotation_ca_func`)
+- Attach a short `.description` metadata string
+
+```python
+from typing import Literal
+
+def dualquat_kinematics_ca_func(
+    symbolic_type: Literal["MX", "SX"] = "MX",
+) -> ca.Function:
+    """Build compiled ca.Function: (dualquat(8,1), twist(6,1)) -> dq_dot(8,1)."""
+    ...
+```
+
+### MX vs SX
+
+- Prefer **MX** for NLP modeling, vector/matrix expressions, and acados OCP formulation
+- Use **SX** for small standalone functions or scalar-expanded code generation
+
+### Import convention
+
+Always use `ca.Function`, never bare `Function` from `casadi`.
+
+### Helper `_expr` functions
+
+Factor repeated math blocks into helper `_expr` functions:
+- `quat_conjugate_expr`
+- `dual_quat_conjugate_expr`
+- `quat_left_matrix_expr`
+- `error_dual_expr`
+
+### Comment style
+
+Comments explain mathematical meaning, not obvious code mechanics.
+Inline `#` comments: only for non-obvious physical or mathematical reasoning.
 
 ---
 

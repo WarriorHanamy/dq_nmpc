@@ -12,6 +12,12 @@ from typing import Union
 import casadi as cs
 import numpy as np
 
+CasadiVec = cs.MX | cs.SX | cs.DM
+"""Generic CasADi vector expression — MX, SX, or DM."""
+
+CasadiMat = cs.MX | cs.SX | cs.DM
+"""Generic CasADi matrix expression — MX, SX, or DM."""
+
 Scalar = Union[float, int, cs.MX, cs.SX]
 """A single numeric value: float, int, or CasADi symbolic scalar."""
 

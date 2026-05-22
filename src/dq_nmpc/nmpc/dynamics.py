@@ -10,31 +10,15 @@ from types import SimpleNamespace
 
 import casadi as ca
 from acados_template import AcadosModel
-from casadi import Function
 
 from dq_nmpc.math.dq_functions import (
-    make_dualquat_acceleration,
-    make_dualquat_kinematics,
+    dualquat_acceleration_ca_func,
+    dualquat_kinematics_ca_func,
+    dualquat_quat_part_ca_func,
 )
 from dq_nmpc.schema import CONTROL_SYM_NAMES, NMPC_REF_DIM, NMPCConfig
 
 __all__ = ["export_acados_model"]
-
-# ---- Inner Symbols ---------------------------------------------------------
-
-_qw_sym = ca.MX.sym("qw", 1, 1)
-_qx_sym = ca.MX.sym("qx", 1, 1)
-_qy_sym = ca.MX.sym("qy", 1, 1)
-_qz_sym = ca.MX.sym("qz", 1, 1)
-_q_sym = ca.vertcat(_qw_sym, _qx_sym, _qy_sym, _qz_sym)
-_dw_sym = ca.MX.sym("dw", 1, 1)
-_dx_sym = ca.MX.sym("dx", 1, 1)
-_dy_sym = ca.MX.sym("dy", 1, 1)
-_dz_sym = ca.MX.sym("dz", 1, 1)
-
-_dual_sym = ca.vertcat(_qw_sym, _qx_sym, _qy_sym, _qz_sym, _dw_sym, _dx_sym, _dy_sym, _dz_sym)
-
-_get_quat_sym = Function("f_quat", [_dual_sym], [_q_sym])
 
 
 # ---- AcadosModel builders ----
@@ -51,8 +35,9 @@ def export_acados_model(config: NMPCConfig) -> SimpleNamespace:
         config.physics.gravity,
     ]
 
-    _dq_kin = make_dualquat_kinematics()
-    _dq_accel = make_dualquat_acceleration(L)
+    _dq_kin = dualquat_kinematics_ca_func()
+    _dq_accel = dualquat_acceleration_ca_func(L)
+    _get_quat = dualquat_quat_part_ca_func()
 
     constraint = ca.types.SimpleNamespace()
 
@@ -128,7 +113,7 @@ def export_acados_model(config: NMPCConfig) -> SimpleNamespace:
 
     model.p = ca.MX.sym("p", NMPC_REF_DIM, 1)
 
-    norm_q = ca.norm_2(_get_quat_sym(X[0:8]))
+    norm_q = ca.norm_2(_get_quat(X[0:8]))
     constraint.expr = ca.vertcat(norm_q)
     constraint.min = 1.0
     constraint.max = 1.0

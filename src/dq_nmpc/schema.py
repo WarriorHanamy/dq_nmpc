@@ -56,7 +56,6 @@ def csv_column_index(name: str) -> int:
 
 # NMPC OCP parameter vector layout
 NMPC_REF_DIM = 18  # nx(14) + nu(4) — per shooting-node reference
-COST_PARAMS_DIM = 32  # nx(14) + nx(14) + nu(4) — trailing constants in p
 NMPC_OCP_P_DIM = 50  # NMPC_REF_DIM + COST_PARAMS_DIM — full runtime p vector
 
 # ref_params[18] sub-layout

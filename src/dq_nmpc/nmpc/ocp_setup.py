@@ -10,7 +10,7 @@ import numpy as np
 from acados_template import AcadosOcp, AcadosOcpSolver
 from casadi import vertcat
 
-from dq_nmpc.math.dq_algebra import dualquat_mul_conj, log_map_dualquat
+from dq_nmpc.math.dq_functions import dualquat_mul_conj_expr, log_map_dualquat_expr
 from dq_nmpc.nmpc.dynamics import export_acados_model
 from dq_nmpc.schema import (
     CONTROL_INPUT,
@@ -38,8 +38,6 @@ def solver(
 
     m = export_acados_model(config)
 
-    x0 = np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-
     ocp = AcadosOcp()
     ocp.code_export_directory = "c_generated_code"
 
@@ -59,8 +57,8 @@ def solver(
     v_b_d = ocp.p[NMPC_REF_VEL_SLICE]
     v_b = m.model.x[11:14]
 
-    dq_err = dualquat_mul_conj(dual_d, dual)
-    ln_full = log_map_dualquat(dq_err)
+    dq_err = dualquat_mul_conj_expr(dual_d, dual)
+    ln_full = log_map_dualquat_expr(dq_err)
     ln_err = vertcat(ln_full[1:4], ln_full[5:8])
 
     Q_pose_np = np.zeros((6, 6))
@@ -75,10 +73,10 @@ def solver(
 
     W = np.block(
         [
-            [Q_pose_np, np.zeros((6, 4)), np.zeros((6, 3)), np.zeros((6, 3))],
-            [np.zeros((4, 6)), R_ctrl_np, np.zeros((4, 3)), np.zeros((4, 3))],
-            [np.zeros((3, 6)), np.zeros((3, 4)), Q_angvel_np, np.zeros((3, 3))],
-            [np.zeros((3, 6)), np.zeros((3, 4)), np.zeros((3, 3)), Q_vel_np],
+            [Q_pose_np, np.zeros((6, 3)), np.zeros((6, 3)), np.zeros((6, 4))],
+            [np.zeros((3, 6)), Q_angvel_np, np.zeros((3, 3)), np.zeros((3, 4))],
+            [np.zeros((3, 6)), np.zeros((3, 3)), Q_vel_np, np.zeros((3, 4))],
+            [np.zeros((4, 6)), np.zeros((4, 3)), np.zeros((4, 3)), R_ctrl_np],
         ]
     )
     W_e = np.block(
@@ -89,10 +87,10 @@ def solver(
         ]
     )
 
-    ocp.model.cost_y_expr = vertcat(ln_err, u_nom - u, w_b - w_b_d, v_b - v_b_d)
+    ocp.model.cost_y_expr = vertcat(ln_err, w_b - w_b_d, v_b - v_b_d, u - u_nom)
     ocp.model.cost_y_expr_e = vertcat(ln_err, w_b - w_b_d, v_b - v_b_d)
 
-    ny = ln_err.shape[0] + 4 + 3 + 3
+    ny = ln_err.shape[0] + 3 + 3 + 4
     ny_e = ln_err.shape[0] + 3 + 3
     ocp.cost.yref = np.zeros(ny)
     ocp.cost.yref_e = np.zeros(ny_e)
@@ -107,31 +105,24 @@ def solver(
     ocp.constraints.lbu = lbu.copy()
     ocp.constraints.ubu = ubu.copy()
     ocp.constraints.idxbu = np.arange(len(CONTROL_INPUT))
+    x0 = np.zeros(m.model.x.shape[0], dtype=np.float64)
+    x0[0] = 1.0
     ocp.constraints.x0 = x0
 
-    ocp.model.con_h_expr = m.constraint.expr
-    nh = m.constraint.expr.shape[0]
-    ocp.cost.zl = 100 * np.ones(nh)
-    ocp.cost.Zl = 100 * np.ones(nh)
-    ocp.cost.Zu = 100 * np.ones(nh)
-    ocp.cost.zu = 100 * np.ones(nh)
-    ocp.constraints.lh = np.array([m.constraint.min])
-    ocp.constraints.uh = np.array([m.constraint.max])
-    ocp.constraints.lsh = np.zeros(nh)
-    ocp.constraints.ush = np.zeros(nh)
-    ocp.constraints.idxsh = np.arange(nh)
-
     ocp.solver_options.qp_solver = "FULL_CONDENSING_HPIPM"
-    ocp.solver_options.qp_solver_cond_N = ocp_cfg.horizon_steps // 4
     ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
-    ocp.solver_options.regularize_method = "CONVEXIFY"
+    ocp.solver_options.regularize_method = "NO_REGULARIZE"
     ocp.solver_options.integrator_type = "IRK"
     ocp.solver_options.nlp_solver_type = "SQP_RTI"
-    ocp.solver_options.Tsim = ocp_cfg.control_update_interval
     ocp.solver_options.tf = ocp_cfg.horizon_time
 
     ocp.solver_options.ext_fun_compile_flags = "-Ofast -march=native"
     ocp.solver_options.hpipm_mode = "SPEED"
+
+    ## NLP Solver Settings
+    ocp.solver_options.nlp_solver_max_iter = 200  # Maximum iterations
+    ocp.solver_options.nlp_solver_tol_stat = 1e-2  # Tolerance for stationarity
+    ocp.solver_options.print_level = 0  # Suppress print output
 
     ocp.solver_options.sim_method_num_stages = 4
     ocp.solver_options.sim_method_num_steps = 1

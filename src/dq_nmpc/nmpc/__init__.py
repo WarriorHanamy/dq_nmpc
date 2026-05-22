@@ -2,12 +2,8 @@
 
 try:
     from dq_nmpc.math.dq_functions import (  # noqa: F401
-        make_body_to_inertial_rotation,
-        make_dualquat_from_pose,
-        make_dualquat_mul_conj,
-        make_inertial_to_body_rotation,
-        make_quat_error_cost,
-        make_translation_error_cost,
+        dualquat_from_pose_ca_func,
+        inertial_to_body_rotation_ca_func,
     )
     from dq_nmpc.nmpc.dynamics import export_acados_model  # noqa: F401
     from dq_nmpc.nmpc.ocp_setup import solver  # noqa: F401

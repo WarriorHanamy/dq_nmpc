@@ -312,10 +312,14 @@ def run_nmpc(
 
     # -- Phase 2: NMPC trajectory tracking --
 
-    from dq_nmpc.math.dq_functions import dualquat_from_pose_np, make_inertial_to_body_rotation
+    from dq_nmpc.math.dq_functions import (
+        dualquat_from_pose_ca_func,
+        inertial_to_body_rotation_ca_func,
+    )
     from dq_nmpc.nmpc.ocp_setup import solver as create_solver
 
-    inv_rot = make_inertial_to_body_rotation()
+    inv_rot = inertial_to_body_rotation_ca_func()
+    dq_from_pose = dualquat_from_pose_ca_func()
 
     N_horizon = config.ocp.horizon_steps
     horizon_time = config.ocp.horizon_time
@@ -327,7 +331,8 @@ def run_nmpc(
         ang_vel = np.array(buf.angular_velocity[:], dtype=np.float64).ravel()
         lin_vel = np.array(buf.linear_velocity[:], dtype=np.float64).ravel()
 
-        dq_vec = dualquat_from_pose_np(quat_q, pos)
+        dq_mx = dq_from_pose(quat_q[0], quat_q[1], quat_q[2], quat_q[3], pos[0], pos[1], pos[2])
+        dq_vec = np.array(dq_mx, dtype=np.float64).ravel()
 
         twist = np.concatenate([ang_vel, lin_vel])
         return np.concatenate([dq_vec, twist])
@@ -340,7 +345,10 @@ def run_nmpc(
         thrust_k = float(traj.ref_thrust[k])
         torque_k = traj.ref_torque[k].ravel()
 
-        dq_vec = dualquat_from_pose_np(quat_k, pos_k)
+        dq_mx = dq_from_pose(
+            quat_k[0], quat_k[1], quat_k[2], quat_k[3], pos_k[0], pos_k[1], pos_k[2]
+        )
+        dq_vec = np.array(dq_mx, dtype=np.float64).ravel()
 
         vel_body = np.array(inv_rot(quat_k.reshape((4, 1)), vel_world.reshape((3, 1)))).ravel()
 

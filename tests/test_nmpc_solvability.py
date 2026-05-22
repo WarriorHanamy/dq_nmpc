@@ -8,7 +8,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from dq_nmpc.math.dq_functions import dualquat_from_pose_np, make_inertial_to_body_rotation
+from dq_nmpc.math.dq_functions import dualquat_from_pose_ca_func, inertial_to_body_rotation_ca_func
 from dq_nmpc.minco_trajectory.flatness_casadi import make_flatness_casadi
 from dq_nmpc.minco_trajectory.loader import load_trajectory_npz, reinterpret_minco_trajectory
 from dq_nmpc.nmpc.ocp_setup import solver
@@ -19,6 +19,9 @@ from dq_nmpc.schema import (
     NMPCConfig,
     control_index,
 )
+
+_dq_from_pose = dualquat_from_pose_ca_func()
+_inv_rot = inertial_to_body_rotation_ca_func()
 
 NMPC_YAML = "src/dq_nmpc/config/mujoco/default/nmpc.yaml"
 TRAJ_NPZ = "out/circle/trajectory.npz"
@@ -32,10 +35,10 @@ def _build_ref_params(traj, k: int) -> np.ndarray:
     thrust_k = float(traj.ref_thrust[k])
     torque_k = traj.ref_torque[k].ravel()
 
-    dq_vec = dualquat_from_pose_np(quat_k, pos_k)
+    dq_mx = _dq_from_pose(quat_k[0], quat_k[1], quat_k[2], quat_k[3], pos_k[0], pos_k[1], pos_k[2])
+    dq_vec = np.array(dq_mx, dtype=np.float64).ravel()
 
-    inv_rot = make_inertial_to_body_rotation()
-    vel_body = np.array(inv_rot(quat_k.reshape((4, 1)), vel_world.reshape((3, 1)))).ravel()
+    vel_body = np.array(_inv_rot(quat_k.reshape((4, 1)), vel_world.reshape((3, 1)))).ravel()
 
     u_nom = np.zeros(4, dtype=np.float64)
     u_nom[control_index("thrust")] = thrust_k
@@ -67,14 +70,14 @@ def test_nmpc_ref_params_shape():
 def test_nmpc_first_step_solvable():
     config, traj = _load_trajectory()
     ocp_cfg = config.ocp
-    inv_rot = make_inertial_to_body_rotation()
 
     k = 0
     pos = traj.ref_pos[k]
     quat_q = traj.ref_quat[k].ravel()
-    dq_vec = dualquat_from_pose_np(quat_q, pos)
+    dq_mx = _dq_from_pose(quat_q[0], quat_q[1], quat_q[2], quat_q[3], pos[0], pos[1], pos[2])
+    dq_vec = np.array(dq_mx, dtype=np.float64).ravel()
     v_body = np.array(
-        inv_rot(quat_q.reshape((4, 1)), traj.ref_vel[k].ravel().reshape((3, 1)))
+        _inv_rot(quat_q.reshape((4, 1)), traj.ref_vel[k].ravel().reshape((3, 1)))
     ).ravel()
     x0 = np.concatenate([dq_vec, traj.ref_omega[k].ravel(), v_body])
 
