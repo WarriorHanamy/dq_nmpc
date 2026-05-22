@@ -352,7 +352,7 @@ def run_nmpc(
 
         vel_body = np.array(inv_rot(quat_k.reshape((4, 1)), vel_world.reshape((3, 1)))).ravel()
 
-        u_nom = np.zeros(4, dtype=np.float64)
+        u_nom = np.zeros(4, dtype=np.float64)  # here is wrong.
         u_nom[control_index("thrust")] = thrust_k
         u_nom[control_index("tau_x")] = torque_k[0]
         u_nom[control_index("tau_y")] = torque_k[1]
@@ -378,13 +378,53 @@ def run_nmpc(
         solver.set(i, "p", p_ref)
         solver.set(i, "u", p_ref[NMPC_REF_UNOM_SLICE].copy())
 
+    MAX_INIT_SQP = 10
+    INIT_SQP_TOL = 1e-3
+    logger.info("=== NMPC-INIT warm-start (k=0, max %d SQP-RTI) ===", MAX_INIT_SQP)
+    converged = False
+    residuals = float("inf")
+    for init_iter in range(MAX_INIT_SQP):
+        init_start = time.monotonic()
+        status = solver.solve()
+        solve_ms = (time.monotonic() - init_start) * 1000.0
+        residuals_raw = solver.get_stats("residuals")
+        qp_iter_raw = solver.get_stats("qp_iter")
+        residuals = float(np.max(np.atleast_1d(residuals_raw)))
+        qp_iter = int(np.sum(np.atleast_1d(qp_iter_raw)))
+        logger.info(
+            "[NMPC-INIT] iter=%d/%d  solve=%.1f ms  residuals=%.2e  qp_iter=%d  status=%d",
+            init_iter + 1,
+            MAX_INIT_SQP,
+            solve_ms,
+            residuals,
+            qp_iter,
+            status,
+        )
+        if status != 0:
+            logger.error("[NMPC-INIT] failed at iter %d (status=%d)", init_iter + 1, status)
+            ctrl_writer.detach()
+            state_reader.detach()
+            return
+        if residuals < INIT_SQP_TOL:
+            logger.info("[NMPC-INIT] converged — residuals=%.2e < %.2e", residuals, INIT_SQP_TOL)
+            converged = True
+            break
+    if not converged:
+        logger.warning(
+            "[NMPC-INIT] did not converge within %d iterations (final residuals=%.2e)",
+            MAX_INIT_SQP,
+            residuals,
+        )
+
     dt_ns = int(control_dt * 1e9)
     next_wake = time.monotonic_ns()
     k = 0
     traj_duration = float(traj.t[-1])
     end_time = traj_duration + horizon_time
     logger.info(
-        "NMPC loop start — tracking %.2f s trajectory (horizon=%.2f s)", traj_duration, horizon_time
+        "=== NMPC-REALTIME tracking %.2f s trajectory (horizon=%.2f s) ===",
+        traj_duration,
+        horizon_time,
     )
 
     try:
@@ -461,7 +501,7 @@ def run_nmpc(
 
             if k % 50 == 0:
                 logger.info(
-                    "NMPC step=%d  pos=(%.2f,%.2f,%.2f)  err=%.3f  th=%.2f  "
+                    "[NMPC-REALTIME] step=%d  pos=(%.2f,%.2f,%.2f)  err=%.3f  th=%.2f  "
                     "tx=%.4f ty=%.4f tz=%.4f  solve=%.1f ms",
                     k,
                     pos[0],
@@ -473,6 +513,14 @@ def run_nmpc(
                     u_opt[control_index("tau_y")],
                     u_opt[control_index("tau_z")],
                     solve_ms,
+                )
+            else:
+                logger.info(
+                    "[NMPC-REALTIME] step=%d  err=%.3f  solve=%.1f ms  status=%d",
+                    k,
+                    position_error,
+                    solve_ms,
+                    status,
                 )
 
             now_ns = time.monotonic_ns()

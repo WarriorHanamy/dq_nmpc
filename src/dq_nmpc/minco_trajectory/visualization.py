@@ -357,3 +357,146 @@ def visualize_trajectory(
     fig.write_html(str(output_path))
     print(f"Visualization saved: {output_path}")
     return output_path
+
+
+def visualize_bullet_belt(
+    belt,
+    output_path: str | Path | None = None,
+    *,
+    step: int = 5,
+) -> go.Figure:
+    """Interactive 3D Plotly visualization of a bullet belt.
+
+    Shows the full trajectory as a gray line with a slider-controlled
+    highlighted segment (the current bullet).  Positions are extracted
+    from the dual-quaternion dual part via ``position_from_dualquat_ca_func``.
+
+    @param[in] belt         ``ReferenceTrajectoryAsBullets`` instance
+    @param[in] output_path  Path for output ``.html`` (if None, figure is returned)
+    @param[in] step         Show every N-th bullet as a frame (controls file size)
+    @return                 Plotly ``Figure`` object
+    """
+    from dq_nmpc.math.dq_functions import position_from_dualquat_ca_func
+
+    dq_to_pos = position_from_dualquat_ca_func()
+
+    N_c = belt.N_c
+    N = belt.horizon_steps
+
+    dq_all = belt.bullets[:, :, :8].reshape(-1, 8).T  # (8, N_c * N)
+    pos_all = np.array(dq_to_pos(dq_all)).T  # (N_c * N, 3)
+    pos_reshaped = pos_all.reshape(N_c, N, 3)  # (N_c, N, 3)
+    traj_pos = pos_reshaped[:, 0, :]  # (N_c, 3) — first point per bullet
+
+    if belt.bullets.shape[0] < 2:
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter3d(
+                x=list(traj_pos[:, 0]),
+                y=list(traj_pos[:, 1]),
+                z=list(traj_pos[:, 2]),
+                mode="markers+lines",
+                marker=dict(size=3),
+                line=dict(color="gray", width=1),
+                name="trajectory",
+            )
+        )
+        fig.update_layout(
+            title="Bullet Belt (empty — N_c < 2)",
+            scene=dict(aspectmode="data"),
+        )
+        if output_path is not None:
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            fig.write_html(str(output_path))
+        return fig
+
+    trace_full = go.Scatter3d(
+        x=list(traj_pos[:, 0]),
+        y=list(traj_pos[:, 1]),
+        z=list(traj_pos[:, 2]),
+        mode="lines",
+        line=dict(color="lightgray", width=1),
+        name="full trajectory",
+    )
+
+    b0_pos = pos_reshaped[0]  # (N, 3)
+    trace_bullet = go.Scatter3d(
+        x=list(b0_pos[:, 0]),
+        y=list(b0_pos[:, 1]),
+        z=list(b0_pos[:, 2]),
+        mode="lines+markers",
+        marker=dict(size=3, color="crimson"),
+        line=dict(color="crimson", width=4),
+        name="current bullet",
+    )
+
+    fig = go.Figure(data=[trace_full, trace_bullet])
+
+    frames: list[go.Frame] = []
+    slider_steps: list[dict] = []
+    frame_indices = list(range(0, N_c, step))
+    for k in frame_indices:
+        pos_k = pos_reshaped[k]
+        frames.append(
+            go.Frame(
+                data=[
+                    go.Scatter3d(
+                        x=list(traj_pos[:, 0]),
+                        y=list(traj_pos[:, 1]),
+                        z=list(traj_pos[:, 2]),
+                        mode="lines",
+                        line=dict(color="lightgray", width=1),
+                    ),
+                    go.Scatter3d(
+                        x=list(pos_k[:, 0]),
+                        y=list(pos_k[:, 1]),
+                        z=list(pos_k[:, 2]),
+                        mode="lines+markers",
+                        marker=dict(size=3, color="crimson"),
+                        line=dict(color="crimson", width=4),
+                    ),
+                ],
+                name=f"k={k}",
+            )
+        )
+        slider_steps.append(
+            dict(
+                args=[
+                    [f"k={k}"],
+                    {"frame": {"duration": 0, "redraw": True}, "mode": "immediate"},
+                ],
+                label=str(k),
+                method="animate",
+            )
+        )
+
+    fig.frames = frames
+
+    fig.update_layout(
+        title=(
+            f"Bullet Belt — {N_c} bullets × {N} horizon steps "
+            f"(step={step}, {len(frame_indices)} frames)"
+        ),
+        scene=dict(
+            xaxis_title="X [m]",
+            yaxis_title="Y [m]",
+            zaxis_title="Z [m]",
+            aspectmode="data",
+        ),
+        margin=dict(l=20, r=20, t=60, b=20),
+        sliders=[
+            dict(
+                active=0,
+                steps=slider_steps,
+                currentvalue={"prefix": "bullet k="},
+                pad=dict(t=40),
+            )
+        ],
+    )
+
+    if output_path is not None:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(str(output_path))
+        print(f"Bullet-belt visualization saved: {output_path}")
+
+    return fig

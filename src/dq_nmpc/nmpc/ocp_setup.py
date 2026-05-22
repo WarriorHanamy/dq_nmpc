@@ -71,6 +71,11 @@ def solver(
     Q_angvel_np = np.diag(Qp[8:11])
     Q_vel_np = np.diag(Qp[11:14])
 
+    print(f"Q_pose      = {np.diag(Q_pose_np)}")
+    print(f"Q_angvel    = {np.diag(Q_angvel_np)}")
+    print(f"Q_vel       = {np.diag(Q_vel_np)}")
+    print(f"R_ctrl      = {np.diag(R_ctrl_np)}")
+
     W = np.block(
         [
             [Q_pose_np, np.zeros((6, 3)), np.zeros((6, 3)), np.zeros((6, 4))],

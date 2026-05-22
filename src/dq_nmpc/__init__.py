@@ -17,7 +17,8 @@ from dq_nmpc.schema import (  # noqa: F401
     NMPCConfig,
     OCPParams,
     PhysicsParams,
-    ReferenceTrajectory,
+    ReferenceTrajBullet,
+    ReferenceTrajectoryAsBullets,
     SHMConfig,
     TrajectoryPoint,
 )
@@ -29,7 +30,8 @@ __all__ = [
     "NMPCConfig",
     "OCPParams",
     "PhysicsParams",
-    "ReferenceTrajectory",
+    "ReferenceTrajBullet",
+    "ReferenceTrajectoryAsBullets",
     "SHMConfig",
     "TrajectoryPoint",
 ]

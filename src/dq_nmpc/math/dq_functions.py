@@ -300,6 +300,47 @@ def dualquat_from_pose_ca_func(
     return f
 
 
+def position_from_dualquat_expr(dualquat: CasadiVec) -> CasadiVec:
+    """Extract world ENU position from unit dual quaternion.
+
+    Dual part d = 0.5 * t ⊗ q  ⇒  t = 2 * d * q^*
+    t_i = 2 * (qw * d_i - dw * q_i - (d_vec × q_vec)_i)
+
+    @param[in] dualquat  (8,) unit dual quaternion
+    @return              (3,) position [m]
+    """
+    qw, qx, qy, qz = dualquat[0], dualquat[1], dualquat[2], dualquat[3]
+    dw, dx, dy, dz = dualquat[4], dualquat[5], dualquat[6], dualquat[7]
+    cross_x = dy * qz - dz * qy
+    cross_y = dz * qx - dx * qz
+    cross_z = dx * qy - dy * qx
+    px = 2.0 * (qw * dx - dw * qx - cross_x)
+    py = 2.0 * (qw * dy - dw * qy - cross_y)
+    pz = 2.0 * (qw * dz - dw * qz - cross_z)
+    return ca.vertcat(px, py, pz)
+
+
+def position_from_dualquat_ca_func(
+    symbolic_type: Literal["MX", "SX"] = "MX",
+) -> ca.Function:
+    """Build compiled ca.Function: dualquat(8,1) -> position(3,1).
+
+    Inverse of dualquat_from_pose_ca_func.
+
+    @return Compiled ca.Function
+    """
+    sym = ca.MX.sym if symbolic_type == "MX" else ca.SX.sym
+    dualquat = sym("dualquat", 8, 1)
+    pos = position_from_dualquat_expr(dualquat)
+    f = ca.Function(
+        "position_from_dualquat",
+        [dualquat],
+        [pos],
+    )
+    f.description = "Extract world-frame position (3,) from a dual quaternion (8,)."
+    return f
+
+
 def dualquat_kinematics_ca_func(
     symbolic_type: Literal["MX", "SX"] = "MX",
 ) -> ca.Function:

@@ -339,159 +339,128 @@ class ClassicalState(BaseModel):
 
 
 class TrajectoryPoint(BaseModel):
-    """Single reference trajectory point (13D state + 4D control).
+    """Single NMPC reference point — 18D array for one OCP stage parameter.
 
-    - x, y, z:       world ENU position [m]
-    - vx, vy, vz:     world ENU linear velocity [m/s]
-    - qw,qx,qy,qz:    world ENU orientation quaternion
-    - wx, wy, wz:     body FLU angular velocity [rad/s]
-    - thrust:         body FLU thrust [N]
-    - torque_x/y/z:   body FLU torque [Nm] (typically zero for ref)
+    Layout: [dq(8) | omega(3) | vel_body(3) | u_nom(4)]
+    - dq[0:4]:    real quaternion [qw, qx, qy, qz]   (identity = [1,0,0,0])
+    - dq[4:8]:    dual part [dw, dx, dy, dz]          (encodes world position)
+    - omega(3):   body-frame angular velocity [rad/s]
+    - vel_body(3): body-frame linear velocity [m/s]
+    - u_nom(4):   nominal control [thrust(N), tau_x, tau_y, tau_z] [N·m]
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
-    x: float = 0.0
-    y: float = 0.0
-    z: float = 0.0
-    vx: float = 0.0
-    vy: float = 0.0
-    vz: float = 0.0
-    qw: float = 1.0
-    qx: float = 0.0
-    qy: float = 0.0
-    qz: float = 0.0
-    wx: float = 0.0
-    wy: float = 0.0
-    wz: float = 0.0
-    thrust: float = 0.0
-    torque_x: float = 0.0
-    torque_y: float = 0.0
-    torque_z: float = 0.0
-
-    def state_as_array(self) -> np.ndarray:
-        """Return (13,) state array."""
-        return np.array(
-            [
-                self.x,
-                self.y,
-                self.z,
-                self.vx,
-                self.vy,
-                self.vz,
-                self.qw,
-                self.qx,
-                self.qy,
-                self.qz,
-                self.wx,
-                self.wy,
-                self.wz,
-            ],
-            dtype=np.float64,
-        )
-
-    def control_as_array(self) -> np.ndarray:
-        """Return (4,) array ordered per CONTROL_INPUT."""
-        arr = np.zeros(len(CONTROL_INPUT), dtype=np.float64)
-        arr[control_index("thrust")] = self.thrust
-        arr[control_index("tau_x")] = self.torque_x
-        arr[control_index("tau_y")] = self.torque_y
-        arr[control_index("tau_z")] = self.torque_z
-        return arr
-
-
-class ReferenceTrajectory(BaseModel):
-    """Full reference trajectory over the prediction horizon."""
-
-    model_config = ConfigDict(frozen=True)
-
-    points: list[TrajectoryPoint] = Field(default_factory=list)
-    horizon_steps: int = Field(default=10, gt=0)
-    cost_weights: list[float] = Field(default_factory=lambda: [1.0] * 30)
-
-    def state_matrix(self) -> np.ndarray:
-        """Return (N, 13) reference state matrix."""
-        return np.column_stack([p.state_as_array() for p in self.points])
-
-    def control_matrix(self) -> np.ndarray:
-        """Return (N, 4) reference control matrix."""
-        return np.column_stack([p.control_as_array() for p in self.points])
-
-
-class FlatnessTrajectory(BaseModel):
-    """Dense flatness-based reference trajectory from get_flatness_trajectory.
-
-    All arrays are (N,) or (N, D) with time-aligned row-major layout.
-    """
-
-    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=False)
-
-    ref_pos: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
-    ref_vel: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
-    ref_acc: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
-    ref_jerk: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
-    ref_snap: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
-    ref_quat: np.ndarray = Field(default_factory=lambda: np.empty((0, 4)))
-    ref_omega: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
-    ref_omega_dot: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
-    ref_thrust: np.ndarray = Field(default_factory=lambda: np.empty(0))
-    ref_torque: np.ndarray = Field(default_factory=lambda: np.empty((0, 3)))
-    ref_yaw: np.ndarray = Field(default_factory=lambda: np.empty(0))
-    ref_yaw_dot: np.ndarray = Field(default_factory=lambda: np.empty(0))
-    ref_yaw_ddot: np.ndarray = Field(default_factory=lambda: np.empty(0))
-    t: np.ndarray = Field(default_factory=lambda: np.empty(0))
+    dq: np.ndarray = Field(
+        default_factory=lambda: np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    )
+    omega: np.ndarray = Field(default_factory=lambda: np.zeros(3, dtype=np.float64))
+    vel_body: np.ndarray = Field(default_factory=lambda: np.zeros(3, dtype=np.float64))
+    u_nom: np.ndarray = Field(default_factory=lambda: np.zeros(4, dtype=np.float64))
 
     @field_validator("*", mode="before")
     @classmethod
     def _coerce_ndarray(cls, v: object) -> np.ndarray:
-        if isinstance(v, list):
+        return np.asarray(v, dtype=np.float64)
+
+    def to_array(self) -> np.ndarray:
+        """Return (18,) numpy array [dq(8), omega(3), vel_body(3), u_nom(4)]."""
+        return np.concatenate([self.dq, self.omega, self.vel_body, self.u_nom])
+
+    @classmethod
+    def from_array(cls, arr: np.ndarray) -> TrajectoryPoint:
+        """Construct from (18,) array."""
+        arr = np.asarray(arr, dtype=np.float64).ravel()
+        return cls(
+            dq=arr[0:8],
+            omega=arr[8:11],
+            vel_body=arr[11:14],
+            u_nom=arr[14:18],
+        )
+
+
+class ReferenceTrajBullet(BaseModel):
+    """Horizon-window reference for a single NMPC solve — (N, 18) array.
+
+    N = horizon_steps (number of shooting-interval reference nodes).
+    Each row k corresponds to acados stage k: ``solver.set(k, "p", bullet[k])``.
+    Mutable (frozen=False) so consumer can update points in-place.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=False)
+
+    points: np.ndarray  # (horizon_steps, 18)
+    horizon_steps: int = Field(gt=0)
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _coerce_bullet(cls, v: object) -> np.ndarray | int:
+        if isinstance(v, (list, np.ndarray)):
             return np.asarray(v, dtype=np.float64)
         return v
 
-    def interp_pos(self, t_query: float) -> np.ndarray:
-        """Interpolate position at a query time.
+    @model_validator(mode="after")
+    def _check_shape(self) -> ReferenceTrajBullet:
+        if self.points.ndim != 2 or self.points.shape != (self.horizon_steps, 18):
+            raise ValueError(f"points shape {self.points.shape} != ({self.horizon_steps}, 18)")
+        return self
 
-        @param[in] t_query  Time [s]
-        @return (3,) ndarray [m]
-        """
-        return np.array(
-            [np.interp(t_query, self.t, self.ref_pos[:, i]) for i in range(3)],
-            dtype=np.float64,
-        )
-
-    def interp_yaw(self, t_query: float) -> float:
-        """Interpolate yaw angle at a query time.
-
-        @param[in] t_query  Time [s]
-        @return Yaw angle [rad]
-        """
-        return float(np.interp(t_query, self.t, self.ref_yaw))
-
-    def save_npz(self, path: str | Path) -> None:
-        """Save trajectory arrays to a compressed NPZ file."""
-        np.savez(
-            path,
-            ref_pos=self.ref_pos,
-            ref_vel=self.ref_vel,
-            ref_acc=self.ref_acc,
-            ref_jerk=self.ref_jerk,
-            ref_snap=self.ref_snap,
-            ref_quat=self.ref_quat,
-            ref_omega=self.ref_omega,
-            ref_omega_dot=self.ref_omega_dot,
-            ref_thrust=self.ref_thrust,
-            ref_torque=self.ref_torque,
-            ref_yaw=self.ref_yaw,
-            ref_yaw_dot=self.ref_yaw_dot,
-            ref_yaw_ddot=self.ref_yaw_ddot,
-            t=self.t,
-        )
+    def to_array(self) -> np.ndarray:
+        """Return (horizon_steps, 18) numpy array."""
+        return self.points
 
     @classmethod
-    def load_npz(cls, path: str | Path) -> FlatnessTrajectory:
-        """Load trajectory from a compressed NPZ file."""
-        data = np.load(path)
-        return cls(**{k: data[k] for k in data.files})
+    def from_array(cls, arr: np.ndarray) -> ReferenceTrajBullet:
+        """Construct from (N, 18) array."""
+        arr = np.atleast_2d(np.asarray(arr, dtype=np.float64))
+        return cls(points=arr, horizon_steps=arr.shape[0])
+
+    def __getitem__(self, k: int) -> TrajectoryPoint:
+        """Return k-th reference point as TrajectoryPoint."""
+        return TrajectoryPoint.from_array(self.points[k])
+
+    def __len__(self) -> int:
+        return int(self.horizon_steps)
+
+
+class ReferenceTrajectoryAsBullets(BaseModel):
+    """Full-length bullet-belt: N_c bullets, each (N, 18), for every control step.
+
+    Shape: bullets[N_c, N, 18]
+    - N_c: total number of MPC control update steps (= len(full trajectory))
+    - N:   horizon_steps (= acados dims.N)
+    - 18:  TrajectoryPoint.to_array() layout
+
+    Mutable (frozen=False) — consumer may slice or update bullets in-place.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=False)
+
+    bullets: np.ndarray  # (N_c, N, 18)
+    N_c: int = Field(gt=0, description="Total control steps")
+    horizon_steps: int = Field(gt=0, description="Steps per bullet (acados dims.N)")
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _coerce_belt(cls, v: object) -> np.ndarray | int:
+        if isinstance(v, (list, np.ndarray)):
+            return np.asarray(v, dtype=np.float64)
+        return v
+
+    @model_validator(mode="after")
+    def _check_shape(self) -> ReferenceTrajectoryAsBullets:
+        if self.bullets.ndim != 3 or self.bullets.shape != (self.N_c, self.horizon_steps, 18):
+            raise ValueError(
+                f"bullets shape {self.bullets.shape} != ({self.N_c}, {self.horizon_steps}, 18)"
+            )
+        return self
+
+    def __getitem__(self, k: int) -> ReferenceTrajBullet:
+        """Return k-th bullet as ReferenceTrajBullet."""
+        return ReferenceTrajBullet(points=self.bullets[k], horizon_steps=self.horizon_steps)
+
+    def __len__(self) -> int:
+        return int(self.N_c)
 
 
 class SHMConfig(BaseModel):
