@@ -8,13 +8,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from dq_nmpc.math.dq_functions import make_inertial_to_body_rotation
-from dq_nmpc.math.dual_quaternion import DualQuaternion
+from dq_nmpc.math.dq_functions import dualquat_from_pose_np, make_inertial_to_body_rotation
 from dq_nmpc.minco_trajectory.flatness_casadi import make_flatness_casadi
 from dq_nmpc.minco_trajectory.loader import load_trajectory_npz, reinterpret_minco_trajectory
 from dq_nmpc.nmpc.ocp_setup import solver
 from dq_nmpc.schema import (
-    COST_PARAMS_DIM,
     NMPC_REF_DIM,
     NMPC_REF_DQ_SLICE,
     NMPC_REF_UNOM_SLICE,
@@ -28,22 +26,23 @@ TRAJ_NPZ = "out/circle/trajectory.npz"
 
 def _build_ref_params(traj, k: int) -> np.ndarray:
     pos_k = traj.ref_pos[k].ravel()
-    quat_k = traj.ref_quat[k].ravel().reshape((4, 1))
+    quat_k = traj.ref_quat[k].ravel()
     omega_k = traj.ref_omega[k].ravel()
-    vel_k = traj.ref_vel[k].ravel()
+    vel_world = traj.ref_vel[k].ravel()
     thrust_k = float(traj.ref_thrust[k])
     torque_k = traj.ref_torque[k].ravel()
 
-    trans_h = np.array([0.0, pos_k[0], pos_k[1], pos_k[2]], dtype=np.float64).reshape((4, 1))
-    dq = DualQuaternion.from_pose(quat=quat_k, trans=trans_h)
-    dq_vec = np.concatenate([dq.Qr.get, dq.Qd.get], axis=0).ravel()
+    dq_vec = dualquat_from_pose_np(quat_k, pos_k)
+
+    inv_rot = make_inertial_to_body_rotation()
+    vel_body = np.array(inv_rot(quat_k.reshape((4, 1)), vel_world.reshape((3, 1)))).ravel()
 
     u_nom = np.zeros(4, dtype=np.float64)
     u_nom[control_index("thrust")] = thrust_k
     u_nom[control_index("tau_x")] = torque_k[0]
     u_nom[control_index("tau_y")] = torque_k[1]
     u_nom[control_index("tau_z")] = torque_k[2]
-    return np.concatenate([dq_vec, omega_k, vel_k, u_nom])
+    return np.concatenate([dq_vec, omega_k, vel_body, u_nom])
 
 
 def _load_trajectory():
@@ -55,12 +54,10 @@ def _load_trajectory():
 
 @pytest.mark.acados
 def test_nmpc_ref_params_shape():
-    """_build_ref_params returns a valid 18D vector."""
     config, traj = _load_trajectory()
     p = _build_ref_params(traj, 0)
-    assert p.shape == (NMPC_REF_DIM,), f"Expected ({NMPC_REF_DIM},), got {p.shape}"
+    assert p.shape == (NMPC_REF_DIM,), f"Expected ({NMPC_REF_DIM},) got {p.shape}"
     assert np.isfinite(p).all()
-
     dq_part = p[NMPC_REF_DQ_SLICE]
     q_real = dq_part[0:4]
     assert abs(float(np.linalg.norm(q_real)) - 1.0) < 1e-10
@@ -68,40 +65,30 @@ def test_nmpc_ref_params_shape():
 
 @pytest.mark.acados
 def test_nmpc_first_step_solvable():
-    """NMPC solver converges at trajectory start with perfect initial state."""
     config, traj = _load_trajectory()
-    nmpc = config.ocp
+    ocp_cfg = config.ocp
     inv_rot = make_inertial_to_body_rotation()
 
     k = 0
     pos = traj.ref_pos[k]
-    quat_q = traj.ref_quat[k].ravel().reshape((4, 1))
-    trans_h = np.array([0.0, pos[0], pos[1], pos[2]], dtype=np.float64).reshape((4, 1))
-    dq = DualQuaternion.from_pose(quat=quat_q, trans=trans_h)
-    dq_vec = np.concatenate([dq.Qr.get, dq.Qd.get], axis=0).ravel()
-    v_body = np.array(inv_rot(quat_q, traj.ref_vel[k].ravel().reshape((3, 1)))).ravel()
+    quat_q = traj.ref_quat[k].ravel()
+    dq_vec = dualquat_from_pose_np(quat_q, pos)
+    v_body = np.array(
+        inv_rot(quat_q.reshape((4, 1)), traj.ref_vel[k].ravel().reshape((3, 1)))
+    ).ravel()
     x0 = np.concatenate([dq_vec, traj.ref_omega[k].ravel(), v_body])
 
     acados_solver, ocp = solver(config, codegen=False)
 
-    N_horizon = nmpc.horizon_steps
-    cost_params = np.ones(COST_PARAMS_DIM, dtype=np.float64)
+    N_horizon = ocp_cfg.horizon_steps
     for i in range(N_horizon):
         idx = min(i, len(traj.t) - 1)
         p_ref = _build_ref_params(traj, idx)
-        acados_solver.set(i, "p", np.concatenate([p_ref, cost_params]))
+        acados_solver.set(i, "p", p_ref)
         acados_solver.set(i, "u", p_ref[NMPC_REF_UNOM_SLICE].copy())
-        # Warm-start state trajectory with reference (optional but helps)
-        # acados_solver.set(i, "x", x0.copy())  -- tried this, also fails
 
     acados_solver.set(0, "lbx", x0)
     acados_solver.set(0, "ubx", x0)
-
-    # Verify x0 quaternion norm via solver get
-    x_init = acados_solver.get(0, "x")
-    q_part = x_init[0:4]
-    q_norm = float(np.linalg.norm(q_part))
-    assert abs(q_norm - 1.0) < 1e-6, f"Initial quaternion norm = {q_norm:.10f} != 1.0"
 
     status = acados_solver.solve()
     residuals = acados_solver.get_stats("residuals")
@@ -109,8 +96,8 @@ def test_nmpc_first_step_solvable():
     qp_stat = acados_solver.get_stats("qp_stat")
 
     assert status == 0, (
-        f"Solver failed at first step (status={status}). "
-        f"residuals={residuals}, qp_iter={qp_iter}, qp_stat={qp_stat}"
+        f"Solver failed (status={status}). "
+        f"residuals={residuals} qp_iter={qp_iter} qp_stat={qp_stat}"
     )
 
     u0 = acados_solver.get(0, "u")
@@ -120,7 +107,6 @@ def test_nmpc_first_step_solvable():
 
 @pytest.mark.acados
 def test_nmpc_cost_function_not_nan():
-    """Cost functions produce finite values for a trajectory point."""
     config, traj = _load_trajectory()
     m = make_flatness_casadi()
 

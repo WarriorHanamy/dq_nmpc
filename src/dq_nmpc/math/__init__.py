@@ -17,7 +17,6 @@ from dq_nmpc.math.dq_functions import (  # noqa: F401
     make_quat_error_cost,
     make_translation_error_cost,
 )
-from dq_nmpc.math.dual_quaternion import DualQuaternion  # noqa: F401
 from dq_nmpc.math.polynomial import (  # noqa: F401
     acceleration_time,
     jerk_time,
@@ -25,4 +24,3 @@ from dq_nmpc.math.polynomial import (  # noqa: F401
     snap_time,
     velocity_time,
 )
-from dq_nmpc.math.quaternion import Quaternion  # noqa: F401

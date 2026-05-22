@@ -1,8 +1,7 @@
 """CasADi Function factories for dual-quaternion operations and NMPC cost terms.
 
-Compiled CasADi Functions wrapping symbolic algebra from dq_algebra
-and DualQuaternion.from_pose.  Every cost function is a standalone
-CasADi Function — testable, composable, reusable.
+Compiled CasADi Functions wrapping symbolic algebra.  Every cost function
+is a standalone CasADi Function — testable, composable, reusable.
 """
 
 from __future__ import annotations
@@ -10,8 +9,6 @@ from __future__ import annotations
 import casadi as ca
 import numpy as np
 from casadi import Function
-
-from dq_nmpc.math.dual_quaternion import DualQuaternion
 
 __all__ = [
     # Cost Terms
@@ -23,9 +20,13 @@ __all__ = [
     "make_translation_error_cost",
     # Helpers
     "make_body_to_inertial_rotation",
+    "make_dualquat_acceleration",
     "make_dualquat_from_pose",
+    "make_dualquat_kinematics",
     "make_dualquat_mul_conj",
     "make_inertial_to_body_rotation",
+    # NumPy helper
+    "dualquat_from_pose_np",
 ]
 
 _EPS = 1e-10
@@ -40,15 +41,18 @@ def make_dualquat_from_pose() -> Function:
     qx = ca.MX.sym("qx", 1, 1)
     qy = ca.MX.sym("qy", 1, 1)
     qz = ca.MX.sym("qz", 1, 1)
-    quaternion = ca.vertcat(qw, qx, qy, qz)
 
     tx = ca.MX.sym("tx", 1, 1)
     ty = ca.MX.sym("ty", 1, 1)
     tz = ca.MX.sym("tz", 1, 1)
-    translation = ca.vertcat(0.0, tx, ty, tz)
 
-    dq = DualQuaternion.from_pose(quat=quaternion, trans=translation)
-    dq_full = ca.vertcat(dq.Qr.get, dq.Qd.get)
+    q_dual = 0.5 * ca.vertcat(
+        -(qx * tx + qy * ty + qz * tz),
+        qw * tx + qy * tz - qz * ty,
+        qw * ty - qx * tz + qz * tx,
+        qw * tz + qx * ty - qy * tx,
+    )
+    dq_full = ca.vertcat(qw, qx, qy, qz, q_dual)
 
     f = Function(
         "dualquat_from_pose",
@@ -157,6 +161,124 @@ def make_inertial_to_body_rotation() -> Function:
     vector_b = H_a @ quat
     f = Function("inertial_to_body_rotation", [quat, vec], [vector_b[1:4]])
     f.description = "Rotate a 3D vector from inertial to body frame using a quaternion."
+    return f
+
+
+# ---------------------------------------------------------------------------
+# DQ kinematics / acceleration factories
+# ---------------------------------------------------------------------------
+
+
+def make_dualquat_kinematics() -> Function:
+    """Build DQ kinematic derivative: q_dot = 0.5 * H(q) * twist + norm stabilization.
+
+    K_quat = 10 is hardcoded as the quaternion-norm stabilization gain.
+
+    Input ports:
+        dualquat  (8,1) MX — dual quaternion [q_real, q_dual]
+        twist     (6,1) MX — body-frame twist [wx, wy, wz, vx, vy, vz]
+
+    Output:
+        dq_dot  (8,1) MX — dual quaternion time derivative
+
+    @return Compiled CasADi Function
+    """
+    dualquat = ca.MX.sym("dualquat", 8, 1)
+    twist = ca.MX.sym("twist", 6, 1)
+
+    quat_data = dualquat[0:4, 0]
+    dual_data = dualquat[4:8, 0]
+    K_quat = 10
+
+    norm_r = ca.norm_2(quat_data)
+    norm_d = 2 * ca.dot(quat_data, dual_data)
+    quat_error = 1 - norm_r
+    dual_error = norm_d
+    aux_1 = quat_data * (K_quat * quat_error)
+    aux_2 = dual_data * (0 * dual_error)
+    aux_dual = ca.vertcat(aux_1, aux_2)
+
+    H_r_plus = ca.vertcat(
+        ca.horzcat(quat_data[0], -quat_data[1], -quat_data[2], -quat_data[3]),
+        ca.horzcat(quat_data[1], quat_data[0], -quat_data[3], quat_data[2]),
+        ca.horzcat(quat_data[2], quat_data[3], quat_data[0], -quat_data[1]),
+        ca.horzcat(quat_data[3], -quat_data[2], quat_data[1], quat_data[0]),
+    )
+    H_d_plus = ca.vertcat(
+        ca.horzcat(dual_data[0], -dual_data[1], -dual_data[2], -dual_data[3]),
+        ca.horzcat(dual_data[1], dual_data[0], -dual_data[3], dual_data[2]),
+        ca.horzcat(dual_data[2], dual_data[3], dual_data[0], -dual_data[1]),
+        ca.horzcat(dual_data[3], -dual_data[2], dual_data[1], dual_data[0]),
+    )
+    zeros = ca.DM.zeros(4, 4)
+    Hplus = ca.vertcat(ca.horzcat(H_r_plus, zeros), ca.horzcat(H_d_plus, H_r_plus))
+
+    omega = ca.vertcat(0.0, twist[0], twist[1], twist[2], 0.0, twist[3], twist[4], twist[5])
+    q_dot = (1 / 2) * (Hplus @ omega) + aux_dual
+
+    f = Function(
+        "dualquat_kinematics",
+        [dualquat, twist],
+        [q_dot],
+        ["dualquat", "twist"],
+        ["dq_dot"],
+    )
+    f.description = "Dual quaternion kinematic derivative with norm stabilization (K_quat=10)."
+    return f
+
+
+def make_dualquat_acceleration(L: list[float]) -> Function:
+    """Build rigid-body acceleration in body frame from force/torques.
+
+    L = [mass, Ixx, Iyy, Izz, gravity] — numeric physics parameters.
+
+    Input ports:
+        dualquat  (8,1) MX — dual quaternion [q_real, q_dual]
+        twist     (6,1) MX — body-frame twist [wx, wy, wz, vx, vy, vz]
+        u         (4,1) MX — control [thrust, taux, tauy, tauz]
+
+    Output:
+        twist_dot  (6,1) MX — body-frame acceleration [wx_dot, wy_dot, wz_dot, vx_dot, vy_dot, vz_dot]
+
+    @return Compiled CasADi Function
+    """
+    dualquat = ca.MX.sym("dualquat", 8, 1)
+    twist = ca.MX.sym("twist", 6, 1)
+    u = ca.MX.sym("u", 4, 1)
+
+    force = u[0, 0]
+    torques = u[1:4, 0]
+
+    J = ca.DM.zeros(3, 3)
+    J[0, 0] = L[1]
+    J[1, 1] = L[2]
+    J[2, 2] = L[3]
+    J_1 = ca.inv(J)
+
+    e3 = ca.DM.zeros(3, 1)
+    e3[2, 0] = 1.0
+
+    w = twist[0:3, 0]
+    v = twist[3:6, 0]
+    quat = dualquat[0:4, 0]
+
+    f_rotation_inv = make_inertial_to_body_rotation()
+
+    F_r = -J_1 @ ca.cross(w, J @ w)
+    F_d = ca.cross(v, w) - L[4] * f_rotation_inv(quat, e3)
+    U_r = J_1 @ torques
+    U_d = (force / L[0]) * e3
+
+    twist_dot = ca.vertcat(F_r + U_r, F_d + U_d)
+
+    f = Function(
+        "dualquat_acceleration",
+        [dualquat, twist, u],
+        [twist_dot],
+        ["dualquat", "twist", "u"],
+        ["twist_dot"],
+    )
+    f.description = "Body-frame rigid-body acceleration from DQ state and control inputs."
     return f
 
 
@@ -352,3 +474,25 @@ def make_inertial_velocity_error_cost() -> Function:
     f = Function("inertial_velocity_error_cost", [v_i_d, v_i], [cost], ["v_i_d", "v_i"], ["cost"])
     f.description = "Squared inertial velocity error: ||v_i - v_i_d||^2."
     return f
+
+
+def dualquat_from_pose_np(quat: np.ndarray, trans3: np.ndarray) -> np.ndarray:
+    """Build DQ (8,) from unit quaternion (4,) and world translation (3,).
+
+    Dual part = 0.5 * t ⊗ q, matching DualQuaternion.from_pose.
+
+    @param[in] quat   (4,) or (4,1) wxyz quaternion
+    @param[in] trans3 (3,) world ENU position [m]
+    @return           (8,) dual quaternion [q_real, q_dual]
+    """
+    qw, qx, qy, qz = quat.ravel()
+    tx, ty, tz = trans3.ravel()
+    dual = 0.5 * np.array(
+        [
+            -(qx * tx + qy * ty + qz * tz),
+            qw * tx + qy * tz - qz * ty,
+            qw * ty - qx * tz + qz * tx,
+            qw * tz + qx * ty - qy * tx,
+        ]
+    )
+    return np.concatenate([quat.ravel(), dual])

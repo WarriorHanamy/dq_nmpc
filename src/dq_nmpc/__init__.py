@@ -10,8 +10,6 @@ Subpackages:
     ros        -- ROS2 compatibility layer (optional)
 """
 
-from dq_nmpc.math.dual_quaternion import DualQuaternion
-from dq_nmpc.math.quaternion import Quaternion
 from dq_nmpc.schema import (  # noqa: F401
     ClassicalState,
     ControlCommand,
@@ -27,12 +25,10 @@ from dq_nmpc.schema import (  # noqa: F401
 __all__ = [
     "ClassicalState",
     "ControlCommand",
-    "DualQuaternion",
     "DualQuaternionState",
     "NMPCConfig",
     "OCPParams",
     "PhysicsParams",
-    "Quaternion",
     "ReferenceTrajectory",
     "SHMConfig",
     "TrajectoryPoint",

@@ -37,10 +37,8 @@ src/dq_nmpc/
 │   └── generate_trajectory.py
 │
 ├── math/                     # Pure math — no acados, no ROS, no SHM
-│   ├── quaternion.py         # Quaternion class (numpy, cs.MX, cs.SX backends)
-│   ├── dual_quaternion.py    # DualQuaternion class (SE(3) algebra)
 │   ├── dq_algebra.py         # symbolic DQ algebra on raw CasADi arrays
-│   ├── dq_functions.py       # CasADi Function factories (dualquat_from_pose, etc.)
+│   ├── dq_functions.py       # CasADi Function factories + numpy helpers
 │   ├── quat_helpers.py       # quaternion-level CasADi helpers
 │   └── polynomial.py         # order-9 polynomial basis for min-snap
 │
