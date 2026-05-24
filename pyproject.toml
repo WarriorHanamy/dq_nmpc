@@ -44,9 +44,6 @@ dq-nmpc-vis-ref = "dq_nmpc.cli.nmpc:main_vis_ref"
 [tool.hatch.build.targets.wheel]
 packages = ["src/dq_nmpc"]
 
-[tool.hatch.build.force-include]
-"src/dq_nmpc/config" = "share/dq_nmpc/config"
-
 [tool.ruff]
 line-length = 100
 target-version = "py312"
