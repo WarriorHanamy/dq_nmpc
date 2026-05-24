@@ -46,6 +46,33 @@ def _box_wireframe(center: np.ndarray, half_extents: tuple[float, float, float])
     return np.vstack(segs).T
 
 
+def _quat_to_euler_zyx(q: np.ndarray) -> np.ndarray:
+    """Convert quaternion [qw,qx,qy,qz] to ZYX Euler angles in degrees.
+
+    ZYX intrinsic rotation = Rz(yaw) * Ry(pitch) * Rx(roll).
+
+    @param[in] q  (4,) or (N,4) quaternion array [qw, qx, qy, qz]
+    @return       (3,) or (N,3) Euler angles [roll, pitch, yaw] in degrees
+    """
+    q = np.atleast_2d(q)
+    qw, qx, qy, qz = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
+
+    R00 = 1.0 - 2.0 * (qy**2 + qz**2)
+    R10 = 2.0 * (qx * qy + qz * qw)
+    R20 = 2.0 * (qx * qz - qy * qw)
+    R21 = 2.0 * (qy * qz + qx * qw)
+    R22 = 1.0 - 2.0 * (qx**2 + qy**2)
+
+    roll = np.arctan2(R21, R22)
+    pitch = -np.arcsin(np.clip(R20, -1.0, 1.0))
+    yaw = np.arctan2(R10, R00)
+
+    euler = np.column_stack([np.rad2deg(roll), np.rad2deg(pitch), np.rad2deg(yaw)])
+    if euler.shape[0] == 1 and q.shape[0] == 1:
+        return euler[0]
+    return euler
+
+
 def visualize_trajectory(
     csv_path: Path,
     shape: str,
@@ -359,36 +386,36 @@ def visualize_trajectory(
     return output_path
 
 
-def visualize_bullet_belt(
-    belt,
+def visualize_belt_set(
+    belts,
     output_path: str | Path | None = None,
     *,
     step: int = 5,
 ) -> go.Figure:
-    """Interactive 3D Plotly visualization of a bullet belt.
+    """Interactive 3D Plotly visualization of a belt set.
 
     Shows the full trajectory as a gray line with a slider-controlled
-    highlighted segment (the current bullet).  Positions are extracted
+    highlighted segment (the current belt).  Positions are extracted
     from the dual-quaternion dual part via ``position_from_dualquat_ca_func``.
 
-    @param[in] belt         ``ReferenceTrajectoryAsBullets`` instance
+    @param[in] belts       ``RefTrajectoryAsBelts`` instance
     @param[in] output_path  Path for output ``.html`` (if None, figure is returned)
-    @param[in] step         Show every N-th bullet as a frame (controls file size)
+    @param[in] step         Show every N-th belt as a frame (controls file size)
     @return                 Plotly ``Figure`` object
     """
     from dq_nmpc.math.dq_functions import position_from_dualquat_ca_func
 
     dq_to_pos = position_from_dualquat_ca_func()
 
-    N_c = belt.N_c
-    N = belt.horizon_steps
+    N_c = belts.N_c
+    N = belts.horizon_steps
 
-    dq_all = belt.bullets[:, :, :8].reshape(-1, 8).T  # (8, N_c * N)
+    dq_all = belts.belts[:, :, :8].reshape(-1, 8).T  # (8, N_c * N)
     pos_all = np.array(dq_to_pos(dq_all)).T  # (N_c * N, 3)
     pos_reshaped = pos_all.reshape(N_c, N, 3)  # (N_c, N, 3)
-    traj_pos = pos_reshaped[:, 0, :]  # (N_c, 3) — first point per bullet
+    traj_pos = pos_reshaped[:, 0, :]  # (N_c, 3) — first point per belt
 
-    if belt.bullets.shape[0] < 2:
+    if belts.belts.shape[0] < 2:
         fig = go.Figure()
         fig.add_trace(
             go.Scatter3d(
@@ -402,7 +429,7 @@ def visualize_bullet_belt(
             )
         )
         fig.update_layout(
-            title="Bullet Belt (empty — N_c < 2)",
+            title="Belt Set (empty — N_c < 2)",
             scene=dict(aspectmode="data"),
         )
         if output_path is not None:
@@ -420,17 +447,17 @@ def visualize_bullet_belt(
     )
 
     b0_pos = pos_reshaped[0]  # (N, 3)
-    trace_bullet = go.Scatter3d(
+    trace_belt = go.Scatter3d(
         x=list(b0_pos[:, 0]),
         y=list(b0_pos[:, 1]),
         z=list(b0_pos[:, 2]),
         mode="lines+markers",
         marker=dict(size=3, color="crimson"),
         line=dict(color="crimson", width=4),
-        name="current bullet",
+        name="current belt",
     )
 
-    fig = go.Figure(data=[trace_full, trace_bullet])
+    fig = go.Figure(data=[trace_full, trace_belt])
 
     frames: list[go.Frame] = []
     slider_steps: list[dict] = []
@@ -474,8 +501,7 @@ def visualize_bullet_belt(
 
     fig.update_layout(
         title=(
-            f"Bullet Belt — {N_c} bullets × {N} horizon steps "
-            f"(step={step}, {len(frame_indices)} frames)"
+            f"Belt Set — {N_c} belts × {N} horizon steps (step={step}, {len(frame_indices)} frames)"
         ),
         scene=dict(
             xaxis_title="X [m]",
@@ -488,7 +514,7 @@ def visualize_bullet_belt(
             dict(
                 active=0,
                 steps=slider_steps,
-                currentvalue={"prefix": "bullet k="},
+                currentvalue={"prefix": "belt k="},
                 pad=dict(t=40),
             )
         ],
@@ -497,6 +523,116 @@ def visualize_bullet_belt(
     if output_path is not None:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(str(output_path))
-        print(f"Bullet-belt visualization saved: {output_path}")
+        print(f"Belt-set visualization saved: {output_path}")
+
+    return fig
+
+
+def visualize_belt_euler_zyx(
+    belts,
+    dt: float,
+    output_path: str | Path | None = None,
+    *,
+    step: int = 5,
+) -> go.Figure:
+    """Interactive Plotly visualization of ZYX Euler angles over each belt.
+
+    For each belt k, extracts the quaternion from ``belts[k, :, 0:4]``,
+    converts to ZYX Euler angles in degrees, and plots roll / pitch / yaw
+    against horizon time (index * dt).  A slider scrubs through all N_c belts.
+    The x-axis starts at 0 = belt start point.
+
+    @param[in] belts       ``RefTrajectoryAsBelts`` instance
+    @param[in] dt          Horizon time step [s]
+    @param[in] output_path  Path for output ``.html`` (if None, figure is returned)
+    @param[in] step         Show every N-th belt as a frame (controls file size)
+    @return                 Plotly ``Figure`` object
+    """
+    N_c = belts.N_c
+    N = belts.horizon_steps
+    horizon_time = np.arange(N) * dt
+
+    quat_all = belts.belts[:, :, :4].reshape(-1, 4)
+    euler_all = _quat_to_euler_zyx(quat_all)
+    euler_reshaped = euler_all.reshape(N_c, N, 3)
+
+    labels = ["roll", "pitch", "yaw"]
+    colors = ["crimson", "royalblue", "darkgreen"]
+
+    fig = make_subplots(
+        rows=3,
+        cols=1,
+        shared_xaxes=True,
+        subplot_titles=("Roll [deg]", "Pitch [deg]", "Yaw [deg]"),
+        vertical_spacing=0.06,
+    )
+
+    e0 = euler_reshaped[0]
+    for i in range(3):
+        fig.add_trace(
+            go.Scatter(
+                x=horizon_time,
+                y=e0[:, i],
+                mode="lines+markers",
+                marker=dict(size=2, color=colors[i]),
+                line=dict(width=2, color=colors[i]),
+                name=labels[i],
+            ),
+            row=i + 1,
+            col=1,
+        )
+
+    frames: list[go.Frame] = []
+    slider_steps: list[dict] = []
+    frame_indices = list(range(0, N_c, step))
+    for k in frame_indices:
+        ek = euler_reshaped[k]
+        frame_data = [
+            go.Scatter(
+                x=horizon_time,
+                y=ek[:, i],
+                mode="lines+markers",
+                marker=dict(size=2, color=colors[i]),
+                line=dict(width=2, color=colors[i]),
+            )
+            for i in range(3)
+        ]
+        frames.append(go.Frame(data=frame_data, name=f"k={k}"))
+        slider_steps.append(
+            dict(
+                args=[
+                    [f"k={k}"],
+                    {"frame": {"duration": 0, "redraw": True}, "mode": "immediate"},
+                ],
+                label=str(k),
+                method="animate",
+            )
+        )
+
+    fig.frames = frames
+
+    fig.update_layout(
+        title=(
+            f"Belt Euler ZYX — {N_c} belts × {N} horizon steps"
+            f"  (step={step}, {len(frame_indices)} frames, dt={dt:.3f} s)"
+        ),
+        margin=dict(l=60, r=20, t=60, b=60),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        sliders=[
+            dict(
+                active=0,
+                steps=slider_steps,
+                currentvalue={"prefix": "belt k="},
+                pad=dict(t=50),
+            )
+        ],
+    )
+
+    fig.update_xaxes(title_text="Horizon time [s]", row=3, col=1)
+
+    if output_path is not None:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(str(output_path))
+        print(f"Belt Euler ZYX visualization saved: {output_path}")
 
     return fig

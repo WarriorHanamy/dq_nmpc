@@ -52,11 +52,6 @@ def main_run():
     parser.add_argument("--model", type=str, default=str(model_path()), help="Path to drone.xml")
     parser.add_argument("--rerun", action="store_true", help="Spawn Rerun viewer")
     parser.add_argument(
-        "--planner",
-        action="store_true",
-        help="Generate trajectory via flatness planner instead of loading NPZ",
-    )
-    parser.add_argument(
         "--se3-config",
         type=str,
         default=_DEFAULT_SE3,
@@ -66,12 +61,11 @@ def main_run():
 
     nmpc_loop(
         config_path=_resolve(args.config),
-        trajectory_path=_resolve(args.trajectory) if args.trajectory else None,
+        trajectory_path=_resolve(args.trajectory),
         max_iter=args.max_iter,
         se3_path=_resolve(args.se3_config),
         model_path=args.model,
         rerun=args.rerun,
-        planner=args.planner,
     )
 
 

@@ -1,5 +1,6 @@
 """Tests for Pydantic schema models."""
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
@@ -101,22 +102,36 @@ class TestControlCommand:
 
 
 class TestTrajectoryPoint:
-    def test_arrays(self):
-        tp = TrajectoryPoint(
-            x=1.0,
-            y=2.0,
-            z=3.0,
-            thrust=5.0,
-            qw=1.0,
-            torque_z=0.5,
+    def test_defaults(self):
+        tp = TrajectoryPoint()
+        arr = tp.to_array()
+        assert arr.shape == (18,)
+        assert arr[0] == 1.0  # qw=1 in identity DQ
+        assert arr[8] == 0.0  # omega=0
+
+    def test_roundtrip(self):
+        import numpy as np
+
+        orig = TrajectoryPoint(
+            dq=np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.5]),
+            omega=np.array([0.1, 0.2, 0.3]),
+            vel_body=np.array([1.0, 2.0, 3.0]),
+            u_nom=np.array([5.0, 0.1, 0.2, 0.3]),
         )
-        state_arr = tp.state_as_array()
-        ctrl_arr = tp.control_as_array()
-        assert state_arr.shape == (13,)
-        assert state_arr[0] == 1.0
-        assert ctrl_arr.shape == (4,)
-        assert ctrl_arr[0] == 5.0
-        assert ctrl_arr[3] == 0.5
+        arr = orig.to_array()
+        assert arr.shape == (18,)
+        restored = TrajectoryPoint.from_array(arr)
+        assert np.allclose(restored.dq, orig.dq)
+        assert np.allclose(restored.omega, orig.omega)
+        assert np.allclose(restored.vel_body, orig.vel_body)
+        assert np.allclose(restored.u_nom, orig.u_nom)
+
+    def test_frozen_assignment_rejected(self):
+        tp = TrajectoryPoint()
+        with pytest.raises(Exception):
+            tp.dq = np.array(
+                [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            )  # attribute reassignment rejected
 
 
 class TestSHMConfig:

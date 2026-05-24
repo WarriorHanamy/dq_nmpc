@@ -1,4 +1,4 @@
-"""Reference trajectory construction: minco → dense ref_params → ReferenceTrajectoryAsBullets."""
+"""Reference trajectory construction: minco → dense ref_params → RefTrajectoryAsBelts."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from dq_nmpc.math.dq_functions import (
     inertial_to_body_rotation_ca_func,
 )
 from dq_nmpc.minco_trajectory.flatness_casadi import make_flatness_casadi
-from dq_nmpc.schema import NMPCConfig, ReferenceTrajectoryAsBullets
+from dq_nmpc.schema import NMPCConfig, RefTrajectoryAsBelts
 
 logger = logging.getLogger(__name__)
 
@@ -183,18 +183,18 @@ def dense_ref_from_minco(
     return ref_params
 
 
-def bullets_from_dense(
+def belts_from_dense(
     ref_params: np.ndarray,
     horizon_steps: int,
-) -> ReferenceTrajectoryAsBullets:
-    """Slide window over dense ref_params to build the bullet belt.
+) -> RefTrajectoryAsBelts:
+    """Slide window over dense ref_params to build the belt set.
 
-    ``N_c = N_total`` — one bullet per control step.  Bullets that extend
+    ``N_c = N_total`` — one belt per control step.  Belts that extend
     past the trajectory end are clamped to the last valid ``ref_params`` row.
 
     @param[in] ref_params      ``(N_total, 18)`` dense reference parameters
-    @param[in] horizon_steps   Number of shooting-interval nodes per bullet
-    @return                    ``ReferenceTrajectoryAsBullets`` with shape ``(N_c, N, 18)``
+    @param[in] horizon_steps   Number of shooting-interval nodes per belt
+    @return                    ``RefTrajectoryAsBelts`` with shape ``(N_c, N, 18)``
     """
     N_total = ref_params.shape[0]
     N_c = N_total
@@ -202,23 +202,76 @@ def bullets_from_dense(
         raise ValueError(f"N_total={N_total} must be >= 1")
     ref_params = np.asarray(ref_params, dtype=np.float64)
 
-    bullets = np.zeros((N_c, horizon_steps, 18), dtype=np.float64)
+    belts = np.zeros((N_c, horizon_steps, 18), dtype=np.float64)
     last_valid = ref_params[-1].copy()
     for k in range(N_c):
         start = k
         n_valid = min(horizon_steps, N_total - start)
-        bullets[k, :n_valid] = ref_params[start : start + n_valid]
+        belts[k, :n_valid] = ref_params[start : start + n_valid]
         if n_valid < horizon_steps:
-            bullets[k, n_valid:] = last_valid
+            belts[k, n_valid:] = last_valid
 
     logger.info(
-        "Bullet belt built: N_c=%d, horizon=%d steps, shape=%s",
+        "Belt set built: N_c=%d, horizon=%d steps, shape=%s",
         N_c,
         horizon_steps,
-        bullets.shape,
+        belts.shape,
     )
-    return ReferenceTrajectoryAsBullets(
-        bullets=bullets,
+    return RefTrajectoryAsBelts(
+        belts=belts,
         N_c=N_c,
         horizon_steps=horizon_steps,
     )
+
+
+def dense_ref_from_flat_arrays(
+    ref_pos: np.ndarray,
+    ref_vel: np.ndarray,
+    ref_quat: np.ndarray,
+    ref_omega: np.ndarray,
+    ref_thrust: np.ndarray,
+    ref_torque: np.ndarray,
+) -> np.ndarray:
+    """Convert flat (N, D) arrays from planner to dense ref_params ``(N, 18)``.
+
+    Batches ``dq_from_pose`` and ``inertial_to_body`` across all points
+    via CasADi column-wise evaluation for speed.
+
+    @param[in] ref_pos     ``(N, 3)`` world position [m]
+    @param[in] ref_vel     ``(N, 3)`` world velocity [m/s]
+    @param[in] ref_quat    ``(N, 4)`` quaternion [qw, qx, qy, qz]
+    @param[in] ref_omega   ``(N, 3)`` body angular velocity [rad/s]
+    @param[in] ref_thrust  ``(N,)``   body thrust [N]
+    @param[in] ref_torque  ``(N, 3)`` body torque [N·m]
+    @return                ``(N, 18)`` float64 array
+    """
+    dq_fn, inv_rot_fn = _get_dq_fns()
+    N = ref_pos.shape[0]
+
+    dq_mat = np.array(
+        dq_fn(
+            np.atleast_2d(ref_quat[:, 0]),
+            np.atleast_2d(ref_quat[:, 1]),
+            np.atleast_2d(ref_quat[:, 2]),
+            np.atleast_2d(ref_quat[:, 3]),
+            np.atleast_2d(ref_pos[:, 0]),
+            np.atleast_2d(ref_pos[:, 1]),
+            np.atleast_2d(ref_pos[:, 2]),
+        )
+    )  # (8, N)
+
+    vb_mat = np.array(inv_rot_fn(ref_quat.T, ref_vel.T))  # (3, N)
+
+    ref_params = np.zeros((N, 18), dtype=np.float64)
+    ref_params[:, 0:8] = dq_mat.T
+    ref_params[:, 8:11] = ref_omega
+    ref_params[:, 11:14] = vb_mat.T
+    ref_params[:, 14] = ref_thrust
+    ref_params[:, 15:18] = ref_torque
+
+    for i in range(1, N):
+        if float(np.dot(ref_params[i, 0:4], ref_params[i - 1, 0:4])) < 0.0:
+            ref_params[i, 0:8] = -ref_params[i, 0:8]
+
+    logger.info("Dense ref_params from flat arrays: N_total=%d", N)
+    return ref_params

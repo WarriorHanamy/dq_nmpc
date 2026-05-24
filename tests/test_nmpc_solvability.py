@@ -8,57 +8,32 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from dq_nmpc.math.dq_functions import dualquat_from_pose_ca_func, inertial_to_body_rotation_ca_func
 from dq_nmpc.minco_trajectory.flatness_casadi import make_flatness_casadi
-from dq_nmpc.minco_trajectory.loader import load_trajectory_npz, reinterpret_minco_trajectory
+from dq_nmpc.minco_trajectory.loader import load_trajectory_npz
 from dq_nmpc.nmpc.ocp_setup import solver
+from dq_nmpc.nmpc.reference import dense_ref_from_minco
 from dq_nmpc.schema import (
     NMPC_REF_DIM,
     NMPC_REF_DQ_SLICE,
     NMPC_REF_UNOM_SLICE,
     NMPCConfig,
-    control_index,
 )
-
-_dq_from_pose = dualquat_from_pose_ca_func()
-_inv_rot = inertial_to_body_rotation_ca_func()
 
 NMPC_YAML = "src/dq_nmpc/config/mujoco/default/nmpc.yaml"
 TRAJ_NPZ = "out/circle/trajectory.npz"
 
 
-def _build_ref_params(traj, k: int) -> np.ndarray:
-    pos_k = traj.ref_pos[k].ravel()
-    quat_k = traj.ref_quat[k].ravel()
-    omega_k = traj.ref_omega[k].ravel()
-    vel_world = traj.ref_vel[k].ravel()
-    thrust_k = float(traj.ref_thrust[k])
-    torque_k = traj.ref_torque[k].ravel()
-
-    dq_mx = _dq_from_pose(quat_k[0], quat_k[1], quat_k[2], quat_k[3], pos_k[0], pos_k[1], pos_k[2])
-    dq_vec = np.array(dq_mx, dtype=np.float64).ravel()
-
-    vel_body = np.array(_inv_rot(quat_k.reshape((4, 1)), vel_world.reshape((3, 1)))).ravel()
-
-    u_nom = np.zeros(4, dtype=np.float64)
-    u_nom[control_index("thrust")] = thrust_k
-    u_nom[control_index("tau_x")] = torque_k[0]
-    u_nom[control_index("tau_y")] = torque_k[1]
-    u_nom[control_index("tau_z")] = torque_k[2]
-    return np.concatenate([dq_vec, omega_k, vel_body, u_nom])
-
-
 def _load_trajectory():
     config = NMPCConfig.from_yaml(NMPC_YAML)
     traj7 = load_trajectory_npz(TRAJ_NPZ)
-    traj = reinterpret_minco_trajectory(traj7, config, config.ocp.control_update_interval)
-    return config, traj
+    ref_params = dense_ref_from_minco(traj7, config)
+    return config, ref_params
 
 
 @pytest.mark.acados
 def test_nmpc_ref_params_shape():
-    config, traj = _load_trajectory()
-    p = _build_ref_params(traj, 0)
+    config, ref_params = _load_trajectory()
+    p = ref_params[0]
     assert p.shape == (NMPC_REF_DIM,), f"Expected ({NMPC_REF_DIM},) got {p.shape}"
     assert np.isfinite(p).all()
     dq_part = p[NMPC_REF_DQ_SLICE]
@@ -68,27 +43,22 @@ def test_nmpc_ref_params_shape():
 
 @pytest.mark.acados
 def test_nmpc_first_step_solvable():
-    config, traj = _load_trajectory()
+    config, ref_params = _load_trajectory()
     ocp_cfg = config.ocp
 
     k = 0
-    pos = traj.ref_pos[k]
-    quat_q = traj.ref_quat[k].ravel()
-    dq_mx = _dq_from_pose(quat_q[0], quat_q[1], quat_q[2], quat_q[3], pos[0], pos[1], pos[2])
-    dq_vec = np.array(dq_mx, dtype=np.float64).ravel()
-    v_body = np.array(
-        _inv_rot(quat_q.reshape((4, 1)), traj.ref_vel[k].ravel().reshape((3, 1)))
-    ).ravel()
-    x0 = np.concatenate([dq_vec, traj.ref_omega[k].ravel(), v_body])
+    x0_dq = ref_params[k, 0:8]
+    x0_omega = ref_params[k, 8:11]
+    x0_vel_body = ref_params[k, 11:14]
+    x0 = np.concatenate([x0_dq, x0_omega, x0_vel_body])
 
     acados_solver, ocp = solver(config, codegen=False)
 
     N_horizon = ocp_cfg.horizon_steps
     for i in range(N_horizon):
-        idx = min(i, len(traj.t) - 1)
-        p_ref = _build_ref_params(traj, idx)
-        acados_solver.set(i, "p", p_ref)
-        acados_solver.set(i, "u", p_ref[NMPC_REF_UNOM_SLICE].copy())
+        idx = min(i, len(ref_params) - 1)
+        acados_solver.set(i, "p", ref_params[idx])
+        acados_solver.set(i, "u", ref_params[idx, NMPC_REF_UNOM_SLICE].copy())
 
     acados_solver.set(0, "lbx", x0)
     acados_solver.set(0, "ubx", x0)
@@ -110,15 +80,16 @@ def test_nmpc_first_step_solvable():
 
 @pytest.mark.acados
 def test_nmpc_cost_function_not_nan():
-    config, traj = _load_trajectory()
-    m = make_flatness_casadi()
+    config, ref_params = _load_trajectory()
 
-    acc = traj.ref_acc[0]
-    jerk = traj.ref_jerk[0]
-    snap = traj.ref_snap[0]
-    yaw = float(traj.ref_yaw[0])
-    yaw_dot = float(traj.ref_yaw_dot[0])
-    yaw_ddot = float(traj.ref_yaw_ddot[0])
+    traj7 = load_trajectory_npz(TRAJ_NPZ)
+    m = make_flatness_casadi()
+    t = 0.0
+    acc = np.array(traj7.get_acc(t)).ravel()
+    jerk = np.array(traj7.get_jer(t)).ravel()
+    from dq_nmpc.nmpc.reference import _get_snap
+
+    snap = _get_snap(traj7, t)
 
     result = m(
         float(acc[0]),
@@ -130,9 +101,9 @@ def test_nmpc_cost_function_not_nan():
         float(snap[0]),
         float(snap[1]),
         float(snap[2]),
-        yaw,
-        yaw_dot,
-        yaw_ddot,
+        0.0,
+        0.0,
+        0.0,
         config.physics.mass,
         config.physics.ixx,
         config.physics.iyy,

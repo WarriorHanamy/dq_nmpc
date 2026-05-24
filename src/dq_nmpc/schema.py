@@ -119,8 +119,14 @@ class OCPParams(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    Q: list[float] = Field(min_length=14, max_length=14)
-    Q_e: list[float] = Field(min_length=14, max_length=14)
+    Q: list[float] = Field(
+        min_length=12,
+        max_length=12,
+        description="12D state-cost weights [rot(3), trans(3), angvel(3), vel(3)]",
+    )
+    Q_e: list[float] = Field(
+        min_length=12, max_length=12, description="12D terminal state-cost weights"
+    )
     R: list[float] = Field(min_length=4, max_length=4)
     nx: int = Field(default=14, gt=0)
     nu: int = Field(default=4, gt=0)
@@ -134,10 +140,10 @@ class OCPParams(BaseModel):
 
     @model_validator(mode="after")
     def _check_lengths_match_dims(self):
-        if len(self.Q) != self.nx:
-            raise ValueError(f"len(Q)={len(self.Q)} must equal nx={self.nx}")
-        if len(self.Q_e) != self.nx:
-            raise ValueError(f"len(Q_e)={len(self.Q_e)} must equal nx={self.nx}")
+        if len(self.Q) != 12:
+            raise ValueError(f"len(Q)={len(self.Q)} must equal 12 (state-cost dimension)")
+        if len(self.Q_e) != 12:
+            raise ValueError(f"len(Q_e)={len(self.Q_e)} must equal 12")
         if len(self.R) != self.nu:
             raise ValueError(f"len(R)={len(self.R)} must equal nu={self.nu}")
         if len(self.lbu) != self.nu:
@@ -379,11 +385,11 @@ class TrajectoryPoint(BaseModel):
         )
 
 
-class ReferenceTrajBullet(BaseModel):
+class RefTrajBelt(BaseModel):
     """Horizon-window reference for a single NMPC solve — (N, 18) array.
 
     N = horizon_steps (number of shooting-interval reference nodes).
-    Each row k corresponds to acados stage k: ``solver.set(k, "p", bullet[k])``.
+    Each row k corresponds to acados stage k: ``solver.set(k, "p", belt[k])``.
     Mutable (frozen=False) so consumer can update points in-place.
     """
 
@@ -394,13 +400,13 @@ class ReferenceTrajBullet(BaseModel):
 
     @field_validator("*", mode="before")
     @classmethod
-    def _coerce_bullet(cls, v: object) -> np.ndarray | int:
+    def _coerce_belt(cls, v: object) -> np.ndarray | int:
         if isinstance(v, (list, np.ndarray)):
             return np.asarray(v, dtype=np.float64)
         return v
 
     @model_validator(mode="after")
-    def _check_shape(self) -> ReferenceTrajBullet:
+    def _check_shape(self) -> RefTrajBelt:
         if self.points.ndim != 2 or self.points.shape != (self.horizon_steps, 18):
             raise ValueError(f"points shape {self.points.shape} != ({self.horizon_steps}, 18)")
         return self
@@ -410,7 +416,7 @@ class ReferenceTrajBullet(BaseModel):
         return self.points
 
     @classmethod
-    def from_array(cls, arr: np.ndarray) -> ReferenceTrajBullet:
+    def from_array(cls, arr: np.ndarray) -> RefTrajBelt:
         """Construct from (N, 18) array."""
         arr = np.atleast_2d(np.asarray(arr, dtype=np.float64))
         return cls(points=arr, horizon_steps=arr.shape[0])
@@ -423,41 +429,41 @@ class ReferenceTrajBullet(BaseModel):
         return int(self.horizon_steps)
 
 
-class ReferenceTrajectoryAsBullets(BaseModel):
-    """Full-length bullet-belt: N_c bullets, each (N, 18), for every control step.
+class RefTrajectoryAsBelts(BaseModel):
+    """Full-length belt set: N_c belts, each (N, 18), for every control step.
 
-    Shape: bullets[N_c, N, 18]
+    Shape: belts[N_c, N, 18]
     - N_c: total number of MPC control update steps (= len(full trajectory))
     - N:   horizon_steps (= acados dims.N)
     - 18:  TrajectoryPoint.to_array() layout
 
-    Mutable (frozen=False) — consumer may slice or update bullets in-place.
+    Mutable (frozen=False) — consumer may slice or update belts in-place.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True, frozen=False)
 
-    bullets: np.ndarray  # (N_c, N, 18)
+    belts: np.ndarray  # (N_c, N, 18)
     N_c: int = Field(gt=0, description="Total control steps")
-    horizon_steps: int = Field(gt=0, description="Steps per bullet (acados dims.N)")
+    horizon_steps: int = Field(gt=0, description="Steps per belt (acados dims.N)")
 
     @field_validator("*", mode="before")
     @classmethod
-    def _coerce_belt(cls, v: object) -> np.ndarray | int:
+    def _coerce_belts(cls, v: object) -> np.ndarray | int:
         if isinstance(v, (list, np.ndarray)):
             return np.asarray(v, dtype=np.float64)
         return v
 
     @model_validator(mode="after")
-    def _check_shape(self) -> ReferenceTrajectoryAsBullets:
-        if self.bullets.ndim != 3 or self.bullets.shape != (self.N_c, self.horizon_steps, 18):
+    def _check_shape(self) -> RefTrajectoryAsBelts:
+        if self.belts.ndim != 3 or self.belts.shape != (self.N_c, self.horizon_steps, 18):
             raise ValueError(
-                f"bullets shape {self.bullets.shape} != ({self.N_c}, {self.horizon_steps}, 18)"
+                f"belts shape {self.belts.shape} != ({self.N_c}, {self.horizon_steps}, 18)"
             )
         return self
 
-    def __getitem__(self, k: int) -> ReferenceTrajBullet:
-        """Return k-th bullet as ReferenceTrajBullet."""
-        return ReferenceTrajBullet(points=self.bullets[k], horizon_steps=self.horizon_steps)
+    def __getitem__(self, k: int) -> RefTrajBelt:
+        """Return k-th belt as RefTrajBelt."""
+        return RefTrajBelt(points=self.belts[k], horizon_steps=self.horizon_steps)
 
     def __len__(self) -> int:
         return int(self.N_c)

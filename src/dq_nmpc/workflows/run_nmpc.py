@@ -21,22 +21,20 @@ logger = logging.getLogger(__name__)
 
 def nmpc_loop(
     config_path: str | Path,
-    trajectory_path: str | Path | None = None,
+    trajectory_path: str | Path,
     *,
     max_iter: int = 0,
     se3_path: str | Path | None = None,
     model_path: str | Path | None = None,
     rerun: bool = False,
-    planner: bool = False,
 ):
     """Run the full NMPC pipeline: build sim, launch core, control loop, cleanup.
 
     @param[in] config_path     Path to nmpc.yaml
-    @param[in] trajectory_path Path to trajectory.npz (required unless planner=True)
+    @param[in] trajectory_path Path to trajectory.npz (minco format)
     @param[in] max_iter        Maximum NMPC iterations (0 = unlimited)
     @param[in] se3_path        Path to se3.yaml (SE3 controller gains)
     @param[in] model_path      Path to drone.xml
-    @param[in] planner         Generate trajectory via flatness planner
     """
     ensure_sim_built()
 
@@ -63,7 +61,6 @@ def nmpc_loop(
             se3_config_path=se3_path,
             max_iter=max_iter,
             rerun=rerun,
-            planner=planner,
         )
 
     except KeyboardInterrupt:

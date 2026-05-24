@@ -63,13 +63,13 @@ def solver(
 
     Q_pose_np = np.zeros((6, 6))
     for i in range(3):
-        Q_pose_np[i, i] = Qp[1 + i]
-        Q_pose_np[i + 3, i + 3] = Qp[5 + i]
+        Q_pose_np[i, i] = Qp[i]
+        Q_pose_np[i + 3, i + 3] = Qp[3 + i]
 
     R_ctrl_np = np.diag(Rp)
 
-    Q_angvel_np = np.diag(Qp[8:11])
-    Q_vel_np = np.diag(Qp[11:14])
+    Q_angvel_np = np.diag(Qp[6:9])
+    Q_vel_np = np.diag(Qp[9:12])
 
     print(f"Q_pose      = {np.diag(Q_pose_np)}")
     print(f"Q_angvel    = {np.diag(Q_angvel_np)}")

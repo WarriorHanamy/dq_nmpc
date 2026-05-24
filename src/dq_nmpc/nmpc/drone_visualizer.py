@@ -1,6 +1,6 @@
 """Rerun-based live visualizer for drone guidance and NMPC tracking.
 
-Records drone pose, body axes, target markers, trajectory path,
+Records drone pose, target markers, trajectory path,
 position error, thrust, body torques, and NMPC solver diagnostics.
 """
 
@@ -9,8 +9,6 @@ from __future__ import annotations
 import numpy as np
 import rerun as rr
 from rerun.blueprint import Blueprint, Horizontal, Spatial3DView, TimeSeriesView, Vertical
-
-from dq_nmpc.nmpc.se3_controller import quat_to_rotmat
 
 __all__ = ["DroneVisualizer"]
 
@@ -91,8 +89,20 @@ class DroneVisualizer:
         rr.send_blueprint(blueprint, make_default=True)
 
     def log_static_trajectory(self, traj, num_samples: int = 200) -> None:
-        """Log the full reference trajectory path as a static line strip."""
-        if hasattr(traj, "ref_pos"):
+        """Log the full reference trajectory path as a static line strip.
+
+        Accepts ``RefTrajectoryAsBelts`` (extracts position from first point
+        of each belt via CasADi), or a minco ``Trajectory7`` (samples via
+        ``get_pos``), or a legacy object with ``ref_pos`` attribute.
+        """
+        from dq_nmpc.math.dq_functions import position_from_dualquat_ca_func
+
+        if hasattr(traj, "belts"):
+            dq_to_pos = position_from_dualquat_ca_func()
+            dq_all = traj.belts[:, 0, :8].T  # (8, N_c)
+            pts_all = np.array(dq_to_pos(dq_all)).T  # (N_c, 3)
+            points = [(float(p[0]), float(p[1]), float(p[2])) for p in pts_all]
+        elif hasattr(traj, "ref_pos"):
             pts = traj.ref_pos
             points = [(float(p[0]), float(p[1]), float(p[2])) for p in pts]
         else:
@@ -166,25 +176,12 @@ class DroneVisualizer:
             ),
         )
 
-        R = quat_to_rotmat(
-            float(quat_wxyz[0]), float(quat_wxyz[1]), float(quat_wxyz[2]), float(quat_wxyz[3])
-        )
-        origin = (0.0, 0.0, 0.0)
-        length = 0.3
-        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
-        labels = ["x_body", "y_body", "z_body"]
-        vectors = [
-            (float(R[0, 0]) * length, float(R[0, 1]) * length, float(R[0, 2]) * length),
-            (float(R[1, 0]) * length, float(R[1, 1]) * length, float(R[1, 2]) * length),
-            (float(R[2, 0]) * length, float(R[2, 1]) * length, float(R[2, 2]) * length),
-        ]
         rr.log(
             "drone/pose/body_axes",
             rr.Arrows3D(
-                origins=[origin, origin, origin],
-                vectors=vectors,
-                colors=colors,
-                labels=labels,
+                origins=[(0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)],
+                vectors=[(0.3, 0.0, 0.0), (0.0, 0.3, 0.0), (0.0, 0.0, 0.3)],
+                colors=[(255, 0, 0), (0, 255, 0), (0, 0, 255)],
             ),
         )
 

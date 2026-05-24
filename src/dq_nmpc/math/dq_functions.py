@@ -341,6 +341,39 @@ def position_from_dualquat_ca_func(
     return f
 
 
+def yaw_from_dualquat_expr(dualquat: CasadiVec) -> CasadiVec:
+    """Extract yaw angle from unit dual quaternion quaternion part.
+
+    q[0:4] → rotation matrix R → atan2(R[1,0], R[0,0])
+
+    @param[in] dualquat  (8,) unit dual quaternion
+    @return              (1,) yaw angle [rad]
+    """
+    qw, qx, qy, qz = dualquat[0], dualquat[1], dualquat[2], dualquat[3]
+    R00 = 1.0 - 2.0 * (qy * qy + qz * qz)
+    R10 = 2.0 * (qx * qy + qz * qw)
+    return ca.arctan2(R10, R00)
+
+
+def yaw_from_dualquat_ca_func(
+    symbolic_type: Literal["MX", "SX"] = "MX",
+) -> ca.Function:
+    """Build compiled ca.Function: dualquat(8,1) -> yaw(1,1).
+
+    @return Compiled ca.Function
+    """
+    sym = ca.MX.sym if symbolic_type == "MX" else ca.SX.sym
+    dualquat = sym("dualquat", 8, 1)
+    yaw = yaw_from_dualquat_expr(dualquat)
+    f = ca.Function(
+        "yaw_from_dualquat",
+        [dualquat],
+        [yaw],
+    )
+    f.description = "Extract yaw angle [rad] from a dual quaternion (8,)."
+    return f
+
+
 def dualquat_kinematics_ca_func(
     symbolic_type: Literal["MX", "SX"] = "MX",
 ) -> ca.Function:

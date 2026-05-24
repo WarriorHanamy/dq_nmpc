@@ -12,8 +12,14 @@ physics:
   izz: 0.00159687
 
 ocp:
-  Q:   [210., 210., 210., 250., 1., 1., 1., 5., 5., 5., 5., 1., 1., 1.]
-  Q_e: [210., 210., 210., 250., 1., 1., 1., 5., 5., 5., 5., 1., 1., 1.]
+  # Q and Q_e: state-cost weights for the 12-element cost vector:
+  #   [ln_err_rot_x, ln_err_rot_y, ln_err_rot_z,
+  #    ln_err_trans_x, ln_err_trans_y, ln_err_trans_z,
+  #    angvel_x, angvel_y, angvel_z,
+  #    vel_x, vel_y, vel_z]
+  # R: control-cost weights [thrust, tau_x, tau_y, tau_z]
+  Q:   [200., 200., 200., 10., 10., 50., 0.1, 0.1, 0.1, 1., 1., 1.]
+  Q_e: [200., 200., 200., 10., 10., 50., 0.1, 0.1, 0.1, 1., 1., 1.]
   R:   [0.1, 0.1, 0.1, 0.1]
   nx: 14
   nu: 4
