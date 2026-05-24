@@ -11,9 +11,9 @@ from typing import Any
 import minco
 import numpy as np
 
-from dq_nmpc.minco_trajectory.flatness_casadi import make_flatness_casadi
 from dq_nmpc.minco_trajectory.visualization import visualize_trajectory
 from dq_nmpc.minco_trajectory.waypoints import make_sfc_box, waypoints_for_shape
+from dq_nmpc.nmpc.flatness import make_flatness_casadi
 from dq_nmpc.schema import TRAJECTORY_CSV_COLUMNS, OutputPaths, PhysicsParams, TrajectoryConfig
 
 _GCONFIG_ROOT = (

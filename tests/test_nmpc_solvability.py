@@ -8,8 +8,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from dq_nmpc.minco_trajectory.flatness_casadi import make_flatness_casadi
 from dq_nmpc.minco_trajectory.loader import load_trajectory_npz
+from dq_nmpc.nmpc.flatness import make_flatness_casadi
 from dq_nmpc.nmpc.ocp_setup import solver
 from dq_nmpc.nmpc.reference import dense_ref_from_minco
 from dq_nmpc.schema import (

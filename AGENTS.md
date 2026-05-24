@@ -41,15 +41,16 @@ src/dq_nmpc/
 │   └── polynomial.py         # order-9 polynomial basis for min-snap
 │
 ├── nmpc/                     # NMPC solver — requires acados
-│   ├── dynamics.py           # Quadrotor ODE, DQ kinematics, flatness
+│   ├── dynamics.py           # Quadrotor ODE, DQ kinematics (acados model)
+│   ├── flatness.py           # Differential flatness: flat outputs → body-frame ref
 │   ├── ocp_setup.py          # OCP definition: cost, constraints, solver options
-│   ├── planner.py            # Flatness-based reference computation
+│   ├── reference.py          # traj7 → dense ref_params → belt set (via nmpc.flatness)
 │   ├── runner.py             # SE3 bootstrap → NMPC runtime loop (run_nmpc)
 │   ├── se3_controller.py     # SE(3) geometric controller (Lee et al. 2010)
 │   └── drone_visualizer.py   # DroneVisualizer — Rerun live + offline recorder
 │
 ├── minco_trajectory/         # minco-python integration
-│   ├── generator.py          # GCOPTER optimize → sample flatness → write CSV
+│   ├── generator.py          # GCOPTER optimize → sample + flatness → write CSV
 │   ├── loader.py             # read CSV → ReferenceTrajectory
 │   ├── waypoints.py          # SHAPES, waypoints_for_shape(), make_sfc_box()
 │   └── visualization.py      # Plotly interactive trajectory plots
@@ -68,8 +69,8 @@ docker/                       # ROS 2 adapter (Docker-based, was src/dq_nmpc/ros
 schema  ──(pydantic)──              # single frozen backbone
 math    ──(numpy, casadi)──         # no schema, no acados
 infra   ──(schema)──                # infrastructure primitives
-nmpc    ──(acados, math, schema)──
-minco_trajectory ──(minco-python)──
+nmpc    ──(acados, math, schema)──  # quadrotor physics, OCP, flatness
+minco_trajectory ──(minco-python, nmpc)──  # trajectory tools; references nmpc for flatness
 │
 workflows ──(infra, nmpc, minco_trajectory)──   # chains layers
 cli      ──(workflows)──                       # dispatch only
@@ -78,8 +79,72 @@ docker   ──(rclpy, optional)──               # ROS 2 adapter
 
 - `math`, `schema`, `infra` are importable without acados or minco.
 - `nmpc` works only when acados is built and on `PYTHONPATH`.
-- `minco_trajectory/` needs minco-python built (CMake + scikit-build-core).
+- `minco_trajectory/` needs minco-python built (CMake + scikit-build-core) and references `nmpc` for differential flatness.
 - `docker/` is optional — contains the ROS 2 adapter (`docker/dq_nmpc_ros2.Dockerfile`) that provides ROS 2 bridging via Docker.
+
+---
+
+## Physical Layers
+
+Both the trajectory generator and NMPC carry their own physical model
+of the quadrotor, and these models are allowed to differ by design.
+
+### Trajectory generator — GCOPTER
+
+GCOPTER (inside `deps/minco-python`) uses an embedded CasADi flatness
+model as polynomial-optimisation constraints.  This model lives in C++
+and is **not exposed** to the Python layer.  Its output is a
+`Trajectory7` — a continuous polynomial that describes position and
+its first four time derivatives (vel, acc, jerk, snap).
+
+GCOPTER's internal flatness is tuned for **fast, long-horizon
+trajectory generation**.  It may be simpler or numerically optimised
+differently than the NMPC model; the result is a geometrically
+feasible reference, not a dynamically exact one.
+
+### NMPC — `nmpc/flatness.py` + `nmpc/dynamics.py`
+
+The NMPC physical layer consists of two parts:
+
+| File               | Role                                                  |
+| ------------------ | ----------------------------------------------------- |
+| `nmpc/flatness.py`   | Differential flatness: (pos, vel, acc, jerk, snap, yaw) → (quat, omega, thrust, torque) |
+| `nmpc/dynamics.py`   | DQ kinematics ODE: (dq, twist, ctrl) → (dq_dot, twist_dot) — acados model |
+
+The conversion pipeline is:
+
+```
+Trajectory7  ──[reference.py: dense_ref_from_minco()]──→  ref_params (N, 18)
+              │
+              └── uses nmpc.flatness to reinterpret the continuous
+                  polynomial geometry in the NMPC's own physical model
+```
+
+Key design points:
+
+| Concern                        | Convention                                                                 |
+| ------------------------------ | -------------------------------------------------------------------------- |
+| Who owns flatness?             | `nmpc/flatness.py` — part of the NMPC physical layer                        |
+| Who produces the geometry?     | GCOPTER (`Trajectory7`) — continuous polynomial in time                     |
+| Who reinterprets the geometry? | NMPC (`reference.py`), using its own flatness model                        |
+| Why two physical models?       | Trajectory generation trades accuracy for speed; NMPC follows a reference  |
+|                                | that may be dynamically infeasible and corrects online via OCP optimisation |
+
+### Simulator — MuJoCo physics
+
+The MuJoCo simulator (`deps/mujoco_quadrotor/`) implements rigid-body
+dynamics that may differ from the NMPC ODE model.  NMPC and the
+simulator communicate via shared memory (SHM):
+
+```
+NMPC (runner)  ──ctrl (64 B)──→  simulator (core)
+NMPC (runner)  ←──state (192 B)──  simulator (core)
+```
+
+**The NMPC physical model should stay reasonably close to the
+simulator's dynamics** so the open-loop prediction horizon remains
+useful.  The same physical parameters (mass, inertia, gravity) flow
+from `nmpc.yaml` into both: acados codegen and the simulator config.
 
 ---
 

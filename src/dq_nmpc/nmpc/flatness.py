@@ -1,7 +1,8 @@
 """CasADi Functions implementing the full differential flatness decomposition.
 
-Port of the flatness map from ``nmpc/planner.py`` (lines 656-734) to
-CasADi MX, accepting NMPC physical parameters as symbolic inputs.
+Differential flatness decomposition for a quadrotor: maps flat outputs
+(acceleration, jerk, snap, yaw derivatives) to body-frame state
+(quaternion, angular velocity/acceleration, thrust, torque).
 
 Computes body-frame orientation, angular velocity, angular acceleration,
 thrust, and torque from flat outputs (acceleration, jerk, snap,

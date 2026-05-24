@@ -7,6 +7,6 @@ try:
     )
     from dq_nmpc.nmpc.dynamics import export_acados_model  # noqa: F401
     from dq_nmpc.nmpc.ocp_setup import solver  # noqa: F401
-    from dq_nmpc.nmpc.planner import get_flatness_trajectory  # noqa: F401
+
 except ImportError:
     pass

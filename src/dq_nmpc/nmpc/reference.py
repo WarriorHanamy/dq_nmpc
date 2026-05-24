@@ -12,7 +12,7 @@ from dq_nmpc.math.dq_functions import (
     dualquat_from_pose_ca_func,
     inertial_to_body_rotation_ca_func,
 )
-from dq_nmpc.minco_trajectory.flatness_casadi import make_flatness_casadi
+from dq_nmpc.nmpc.flatness import make_flatness_casadi
 from dq_nmpc.schema import NMPCConfig, RefTrajectoryAsBelts
 
 logger = logging.getLogger(__name__)
