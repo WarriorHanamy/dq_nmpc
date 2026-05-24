@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from dq_nmpc.minco_trajectory.generator import generate_trajectory as _generate_trajectory
+from dq_nmpc.minco_trajectory import generate_trajectory as _generate_trajectory
 from dq_nmpc.schema import TrajectoryConfig
 
 

@@ -10,8 +10,8 @@ from pathlib import Path
 import minco
 import numpy as np
 
-from dq_nmpc.minco_trajectory.visualization import visualize_trajectory
-from dq_nmpc.minco_trajectory.waypoints import make_sfc_box, waypoints_for_shape
+from dq_nmpc.minco_trajectory._visualization import visualize_trajectory
+from dq_nmpc.minco_trajectory._waypoints import make_sfc_box, waypoints_for_shape
 from dq_nmpc.schema import OutputPaths, TrajectoryConfig
 
 _GCONFIG_ROOT = Path(__file__).resolve().parent

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from dq_nmpc.minco_trajectory.waypoints import SHAPES
+from dq_nmpc.minco_trajectory import SHAPES
 
 
 def main():

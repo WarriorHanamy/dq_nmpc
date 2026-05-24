@@ -29,10 +29,6 @@ src/dq_nmpc/
 │   ├── codegen.py            # load YAML → acados solver codegen
 │   └── generate_trajectory.py
 │
-├── math/                     # Pure math — no acados, no ROS, no SHM
-│   ├── dq_functions.py       # _expr functions + _ca_func wrappers + numpy helpers
-│   └── polynomial.py         # order-9 polynomial basis for min-snap
-│
 ├── nmpc/                     # NMPC solver — requires acados
 │   ├── config/                #   default.yaml, se3.yaml
 │   ├── dq_functions.py        # DQ math kernels (_expr + _ca_func pattern)
@@ -74,6 +70,163 @@ docker   ──(rclpy, optional)──               # ROS 2 adapter
 - `nmpc` works only when acados is built and on `PYTHONPATH`.
 - `minco_trajectory/` needs minco-python built (CMake + scikit-build-core).
 - `docker/` is optional — contains the ROS 2 adapter (`docker/dq_nmpc_ros2.Dockerfile`) that provides ROS 2 bridging via Docker.
+
+---
+
+## Module Boundaries
+
+Every directory under `src/dq_nmpc/` that contains Python code is a
+module.  Each module has a single public surface: its `__init__.py`.
+
+### Public surface
+
+`__init__.py` is the module facade.  It may **only**:
+
+- re-export public symbols from private internals
+- define `__all__`
+- contain a module docstring
+
+It must **never**:
+
+- import acados, minco, or any optional dependency at module level
+- open files, read environment, or configure logging
+- instantiate objects, register hooks, or spawn threads
+- run `try/except ImportError` that silently swallows missing deps
+
+```python
+# nmpc/__init__.py — correct
+"""NMPC solver: DQ math, flatness, OCP, runtime."""
+
+from ._dq_functions import (
+    dualquat_from_pose_ca_func,
+    dualquat_kinematics_expr,
+)
+from ._flatness import make_flatness_casadi
+from ._reference import dense_ref_from_minco
+
+__all__ = [
+    "dualquat_from_pose_ca_func",
+    "dualquat_kinematics_expr",
+    "make_flatness_casadi",
+    "dense_ref_from_minco",
+    "solver",
+    "run_nmpc",
+]
+
+def __getattr__(name: str):
+    if name == "solver":
+        from ._ocp_setup import solver
+        return solver
+    if name == "run_nmpc":
+        from ._runner import run_nmpc
+        return run_nmpc
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+```
+
+### Private internals
+
+Every implementation file inside a module is private.  Its name starts
+with `_`.
+
+```
+nmpc/
+  __init__.py          # facade
+  _dq_functions.py     # private: DQ algebra
+  _dynamics.py         # private: acados model
+  _flatness.py         # private: differential flatness
+  _ocp_setup.py        # private: solver factory
+  _reference.py        # private: trajectory → reference
+  _runner.py           # private: NMPC runtime loop
+  config/              # YAML files (not Python — no prefix)
+    default.yaml
+```
+
+A private file may define a public name (e.g. `run_nmpc` in
+`_runner.py`).  The name becomes public only when the facade
+re-exports it.
+
+### Imports
+
+Three rules cover every situation.
+
+**1. Cross-module: absolute, through facade.**
+
+```python
+# Correct
+from dq_nmpc.nmpc import run_nmpc
+from dq_nmpc.infra import launch_sim_core, wait_for_shm
+from dq_nmpc.schema import NMPCConfig
+from dq_nmpc.minco_trajectory import load_trajectory_npz
+
+# Wrong — reaches into private internals
+from dq_nmpc.nmpc._runner import run_nmpc
+from dq_nmpc.infra._docker import launch_sim_core
+```
+
+**2. Within a module: absolute, fully qualified.**
+
+```python
+# Inside nmpc/_runner.py — correct
+from dq_nmpc.nmpc._dq_functions import position_from_dualquat_ca_func
+from dq_nmpc.nmpc._visualizer import DroneVisualizer
+from dq_nmpc.nmpc._se3_controller import se3_control
+
+# Inside nmpc/_runner.py — wrong
+from ._dq_functions import position_from_dualquat_ca_func
+```
+
+**3. `__init__.py` only: relative, to re-export internals.**
+
+```python
+# nmpc/__init__.py — the ONE place relative imports are allowed
+from ._dq_functions import dualquat_from_pose_ca_func
+from ._runner import run_nmpc
+```
+
+Summary:
+
+| Context                | Style    | Example                                    |
+| ---------------------- | -------- | ------------------------------------------ |
+| Cross-module           | absolute | `from dq_nmpc.nmpc import run_nmpc`          |
+| Within module (`_*.py`)  | absolute | `from dq_nmpc.nmpc._dq_functions import ...` |
+| `__init__.py` re-export  | relative | `from ._runner import run_nmpc`              |
+
+### Entrypoints
+
+A file being importable does not make it executable.
+Only functions listed in `pyproject.toml` `[project.scripts]` are
+entrypoints.
+
+```toml
+[project.scripts]
+dq-run = "dq_nmpc.cli._nmpc:main_run"
+dq-codegen = "dq_nmpc.cli._nmpc:main_codegen"
+dq-trajectory = "dq_nmpc.cli._trajectory:main"
+dq-build-sim = "dq_nmpc.cli._build:main_build_sim"
+```
+
+No file outside `cli/` may contain `if __name__ == "__main__":`.
+
+### What lives where
+
+| Concept                         | Location               | Public name                          |
+| ------------------------------- | ---------------------- | ------------------------------------ |
+| Pydantic models, type aliases   | `schema.py`, `type.py`     | as-is (top-level, no prefix)         |
+| SHM, subprocess, paths          | `infra/`                 | `infra.__init__`                       |
+| DQ math (CasADi, numpy)         | `nmpc/_dq_functions.py`  | `nmpc.__init__`                        |
+| Flatness, dynamics, OCP, runner | `nmpc/_*.py`             | `nmpc.__init__` (lazy for acados deps) |
+| Trajectory gen + I/O (minco)    | `minco_trajectory/_*.py` | `minco_trajectory.__init__`            |
+| Multi-step pipelines            | `workflows/_*.py`        | `workflows.__init__` (lazy)            |
+| Argument parsing, dispatch      | `cli/_*.py`              | via `pyproject.toml` scripts           |
+| YAML config files               | `*/config/*.yaml`        | not imported, read at runtime        |
+
+### Rules
+
+1. One public surface per module: `__init__.py`.
+2. Everything else is `_private.py`.
+3. All imports are absolute, except `__init__.py` which uses relative to re-export.
+4. `__init__.py` has zero side effects.
+5. Only `cli/` files are executable.
 
 ---
 
@@ -206,6 +359,7 @@ uv run dq-run src/dq_nmpc/nmpc/config/default.yaml out/circle/trajectory.npz
 ```
 
 Output artifacts for step 1 are written to `out/{shape}/`:
+
 - `trajectory.npz` — polynomial coefficients (continuous representation, consumed by NMPC)
 - `trajectory.html` — interactive Plotly visualization (opens automatically)
 
@@ -257,6 +411,7 @@ No duplication: `_ca_func` factories must call `_expr`, never reimplement logic.
 ### `_expr` expression functions
 
 Expression functions must:
+
 - Accept CasADi expressions (`ca.MX`, `ca.SX`, or `ca.DM`) and return CasADi expressions
 - NOT create symbolic variables internally
 - NOT return `ca.Function`
@@ -281,6 +436,7 @@ def dualquat_mul_conj_expr(qd: CasadiVec, q: CasadiVec) -> CasadiVec:
 ### `_ca_func` wrappers
 
 Function wrappers must:
+
 - Only create symbolic inputs (via `MX.sym` or `SX.sym`)
 - Call the corresponding `_expr` function
 - Wrap result into `ca.Function` with named inputs/outputs
@@ -311,6 +467,7 @@ Always use `ca.Function`, never bare `Function` from `casadi`.
 ### Helper `_expr` functions
 
 Factor repeated math blocks into helper `_expr` functions:
+
 - `quat_conjugate_expr`
 - `dual_quat_conjugate_expr`
 - `quat_left_matrix_expr`

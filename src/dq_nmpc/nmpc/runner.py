@@ -86,7 +86,7 @@ def run_nmpc(
             "Expected minco NPZ ('durations' + 'coeffs')."
         )
 
-    from dq_nmpc.minco_trajectory.loader import load_trajectory_npz
+    from dq_nmpc.minco_trajectory import load_trajectory_npz
     from dq_nmpc.nmpc.reference import belts_from_dense, dense_ref_from_minco
 
     traj7 = load_trajectory_npz(trajectory_path)

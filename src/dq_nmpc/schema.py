@@ -502,7 +502,7 @@ class OutputPaths(BaseModel):
     @field_validator("shape")
     @classmethod
     def _shape_known(cls, v: str) -> str:
-        from dq_nmpc.minco_trajectory.waypoints import SHAPES
+        from dq_nmpc.minco_trajectory import SHAPES
 
         if v not in SHAPES:
             raise ValueError(f"Unknown shape '{v}'. Choose from: {SHAPES}")
