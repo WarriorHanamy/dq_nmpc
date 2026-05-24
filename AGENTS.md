@@ -41,21 +41,21 @@ src/dq_nmpc/
 │   └── polynomial.py         # order-9 polynomial basis for min-snap
 │
 ├── nmpc/                     # NMPC solver — requires acados
-│   ├── dynamics.py           # Quadrotor ODE, DQ kinematics (acados model)
-│   ├── flatness.py           # Differential flatness: flat outputs → body-frame ref
-│   ├── ocp_setup.py          # OCP definition: cost, constraints, solver options
-│   ├── reference.py          # traj7 → dense ref_params → belt set (via nmpc.flatness)
-│   ├── runner.py             # SE3 bootstrap → NMPC runtime loop (run_nmpc)
-│   ├── se3_controller.py     # SE(3) geometric controller (Lee et al. 2010)
-│   └── drone_visualizer.py   # DroneVisualizer — Rerun live + offline recorder
+│   ├── config/                #   default.yaml, se3.yaml
+│   ├── dynamics.py            # Quadrotor ODE, DQ kinematics (acados model)
+│   ├── flatness.py            # Differential flatness: flat outputs → body-frame ref
+│   ├── ocp_setup.py           # OCP definition: cost, constraints, solver options
+│   ├── reference.py           # traj7 → dense ref_params → belt set (via nmpc.flatness)
+│   ├── runner.py              # SE3 bootstrap → NMPC runtime loop (run_nmpc)
+│   ├── se3_controller.py      # SE(3) geometric controller (Lee et al. 2010)
+│   └── drone_visualizer.py    # DroneVisualizer — Rerun live + offline recorder
 │
-├── minco_trajectory/         # minco-python integration
-│   ├── generator.py          # GCOPTER optimize → sample + flatness → write CSV
-│   ├── loader.py             # read CSV → ReferenceTrajectory
-│   ├── waypoints.py          # SHAPES, waypoints_for_shape(), make_sfc_box()
-│   └── visualization.py      # Plotly interactive trajectory plots
-│
-└── config/mujoco/default/    # YAML parameter files (nmpc.yaml)
+├── minco_trajectory/          # minco-python integration
+│   ├── config/                #   default.yaml, default_gcopter.yaml, lbfgs.yaml
+│   ├── generator.py           # GCOPTER optimize → sample geometry → write CSV
+│   ├── loader.py              # read CSV → ReferenceTrajectory
+│   ├── waypoints.py           # SHAPES, waypoints_for_shape(), make_sfc_box()
+│   └── visualization.py       # Plotly interactive trajectory plots
 
 docker/                       # ROS 2 adapter (Docker-based, was src/dq_nmpc/ros/)
 ├── ros2_adapter_node.py      # ROS2 adapter: SHM ↔ /odom + /cmd topics
@@ -70,7 +70,7 @@ schema  ──(pydantic)──              # single frozen backbone
 math    ──(numpy, casadi)──         # no schema, no acados
 infra   ──(schema)──                # infrastructure primitives
 nmpc    ──(acados, math, schema)──  # quadrotor physics, OCP, flatness
-minco_trajectory ──(minco-python, nmpc)──  # trajectory tools; references nmpc for flatness
+minco_trajectory ──(minco-python)── # trajectory tools
 │
 workflows ──(infra, nmpc, minco_trajectory)──   # chains layers
 cli      ──(workflows)──                       # dispatch only
@@ -79,7 +79,7 @@ docker   ──(rclpy, optional)──               # ROS 2 adapter
 
 - `math`, `schema`, `infra` are importable without acados or minco.
 - `nmpc` works only when acados is built and on `PYTHONPATH`.
-- `minco_trajectory/` needs minco-python built (CMake + scikit-build-core) and references `nmpc` for differential flatness.
+- `minco_trajectory/` needs minco-python built (CMake + scikit-build-core).
 - `docker/` is optional — contains the ROS 2 adapter (`docker/dq_nmpc_ros2.Dockerfile`) that provides ROS 2 bridging via Docker.
 
 ---
@@ -130,6 +130,13 @@ Key design points:
 | Why two physical models?       | Trajectory generation trades accuracy for speed; NMPC follows a reference  |
 |                                | that may be dynamically infeasible and corrects online via OCP optimisation |
 
+The CSV output from `dq-trajectory` contains only **geometric** data
+(position and its first four time derivatives) sampled from
+`Trajectory7`.  Differential flatness reinterpretation (quaternion,
+body angular velocity, thrust, torque) occurs exclusively in
+`nmpc/reference.py` when the NMPC loads the `Trajectory7` from the
+`.npz` coefficient file — **not** during trajectory generation.
+
 ### Simulator — MuJoCo physics
 
 The MuJoCo simulator (`deps/mujoco_quadrotor/`) implements rigid-body
@@ -179,7 +186,7 @@ export PYTHONPATH="$ACADOS_SOURCE_DIR/interfaces/acados_template:$PYTHONPATH"
 Run codegen once (produces `c_generated_code/`):
 
 ```bash
-uv run dq-codegen config/mujoco/default/nmpc.yaml
+uv run dq-codegen src/dq_nmpc/nmpc/config/default.yaml
 ```
 
 ### Simulator
@@ -197,15 +204,20 @@ cd deps/mujoco_quadrotor && uv run sim build
 ### Main runtime (no ROS)
 
 ```bash
-# 1. Generate trajectory CSV + NPZ (uses defaults from trajectory.yaml)
-uv run dq-trajectory
+# 1. Generate trajectory (CSV + NPZ + interactive HTML visualization)
+uv run dq-trajectory --shape circle
 
 # 2. acados code generation (first run)
 uv run dq-codegen config/mujoco/default/nmpc.yaml
 
 # 3. Run sim core + NMPC
-uv run dq-run config/mujoco/default/nmpc.yaml out/circle/trajectory.npz
+uv run dq-run src/dq_nmpc/nmpc/config/default.yaml out/circle/trajectory.npz
 ```
+
+Output artifacts for step 1 are written to `out/{shape}/`:
+- `trajectory.csv` — sampled geometry (t, x, y, z, vx, vy, vz, ax, ay, az, jx, jy, jz, sx, sy, sz)
+- `trajectory.npz` — polynomial coefficients (continuous representation, consumed by NMPC)
+- `trajectory.html` — interactive Plotly visualization (opens automatically)
 
 ### ROS 2 adapter (optional, Docker)
 

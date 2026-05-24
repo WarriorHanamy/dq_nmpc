@@ -19,7 +19,7 @@ from dq_nmpc.schema import (
     NMPCConfig,
 )
 
-NMPC_YAML = "src/dq_nmpc/config/mujoco/default/nmpc.yaml"
+NMPC_YAML = "src/dq_nmpc/nmpc/config/default.yaml"
 TRAJ_NPZ = "out/circle/trajectory.npz"
 
 

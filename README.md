@@ -36,13 +36,13 @@ cd dq_nmpc
 uv sync
 
 # 3. NMPC code generation (one-time)
-uv run dq-codegen config/mujoco/default/nmpc.yaml
+uv run dq-codegen src/dq_nmpc/nmpc/config/default.yaml
 
 # 4. Generate trajectory CSV + NPZ
 uv run dq-trajectory
 
 # 5. Run sim core + NMPC
-uv run dq-run config/mujoco/default/nmpc.yaml out/circle/trajectory.npz
+uv run dq-run src/dq_nmpc/nmpc/config/default.yaml out/circle/trajectory.npz
 ```
 
 ### Prerequisites
@@ -97,13 +97,13 @@ uv run dq-trajectory --config path/to/trajectory.yaml --output trajectory.csv
 ### `dq-codegen`
 
 ```
-uv run dq-codegen config/mujoco/default/nmpc.yaml
+uv run dq-codegen src/dq_nmpc/nmpc/config/default.yaml
 ```
 
 ### `dq-run`
 
 ```
-uv run dq-run config/mujoco/default/nmpc.yaml out/circle/trajectory.npz [--max-iter 1000]
+uv run dq-run src/dq_nmpc/nmpc/config/default.yaml out/circle/trajectory.npz [--max-iter 1000]
 ```
 
 ## Shared Memory Interface
@@ -153,7 +153,7 @@ src/dq_nmpc/
 │   └── loader.py             #   CSV → ReferenceTrajectory
 ├── orchestrator.py          # Launch sim_core + NMPC, handle lifecycle
 ├── ros/                     # ROS 2 adapter layer (optional, Docker-based)
-└── config/mujoco/default/   # NMPC YAML parameter files
+├── nmpc/config/              + minco_trajectory/config/   # YAML config files per sub-package
 ```
 
 ### Dependency Layers

@@ -69,8 +69,8 @@ def main_run():
     )
 
 
-_DEFAULT_NMPC = "src/dq_nmpc/config/mujoco/default/nmpc.yaml"
-_DEFAULT_SE3 = "src/dq_nmpc/config/mujoco/default/se3.yaml"
+_DEFAULT_NMPC = "src/dq_nmpc/nmpc/config/default.yaml"
+_DEFAULT_SE3 = "src/dq_nmpc/nmpc/config/se3.yaml"
 _DEFAULT_TRAJ = "out/circle/trajectory.npz"
 
 

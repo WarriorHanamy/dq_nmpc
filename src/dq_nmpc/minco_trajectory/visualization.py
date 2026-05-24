@@ -73,26 +73,37 @@ def _quat_to_euler_zyx(q: np.ndarray) -> np.ndarray:
     return euler
 
 
+def _make_title(shape: str, cost: float) -> str:
+    """Build title string from optional shape and cost."""
+    parts = ["GCOPTER Trajectory"]
+    if shape:
+        parts.append(f"— {shape}")
+    if cost > 0.0:
+        parts.append(f"(cost={cost:.2f})")
+    return " ".join(parts)
+
+
 def visualize_trajectory(
     csv_path: Path,
-    shape: str,
-    inner_points: np.ndarray,
-    sfc_centers: list[np.ndarray],
-    half_extents: tuple[float, float, float],
-    cost: float,
     output_path: Path,
+    *,
+    shape: str = "",
+    cost: float = 0.0,
+    inner_points: np.ndarray | None = None,
+    sfc_centers: list[np.ndarray] | None = None,
+    half_extents: tuple[float, float, float] | None = None,
     optimized_positions: np.ndarray | None = None,
 ) -> Path:
     """Generate interactive plotly HTML visualization of a trajectory.
 
     @param[in] csv_path             Path to trajectory CSV
-    @param[in] shape                Trajectory shape name
-    @param[in] inner_points         (3, N) seed waypoints
-    @param[in] sfc_centers          List of (3,) SFC box centers
-    @param[in] half_extents         SFC box half-extents [m]
-    @param[in] cost                 Optimization cost
     @param[in] output_path          Output HTML path
-    @param[in] optimized_positions  (3, M) GCOPTER-optimized junction positions
+    @param[in] shape                Trajectory shape name (title only)
+    @param[in] cost                 Optimization cost (title only)
+    @param[in] inner_points         (3, N) seed waypoints (optional)
+    @param[in] sfc_centers          List of (3,) SFC box centers (optional)
+    @param[in] half_extents         SFC box half-extents [m] (optional)
+    @param[in] optimized_positions  (3, M) GCOPTER-optimized junction positions (optional)
     @return                         Path to the written HTML file
     """
     data = np.genfromtxt(csv_path, delimiter=",", skip_header=1)
@@ -103,26 +114,15 @@ def visualize_trajectory(
     acc = data[:, _i("ax") : _i("az") + 1]
     jer = data[:, _i("jx") : _i("jz") + 1]
     sna = data[:, _i("sx") : _i("sz") + 1]
-    w = data[:, _i("wx") : _i("wz") + 1]
-    thrust = data[:, _i("thrust")]
 
     v_norm = np.linalg.norm(vel, axis=1)
 
-    # Read torque from CSV if columns exist
-    torque = None
-    try:
-        torque = data[:, _i("torque_x") : _i("torque_z") + 1]
-    except ValueError:
-        pass
-
     fig = make_subplots(
-        rows=7,
+        rows=5,
         cols=2,
         column_widths=[0.55, 0.45],
         specs=[
-            [{"type": "scene", "rowspan": 7}, {"type": "xy"}],
-            [None, {"type": "xy"}],
-            [None, {"type": "xy"}],
+            [{"type": "scene", "rowspan": 5}, {"type": "xy"}],
             [None, {"type": "xy"}],
             [None, {"type": "xy"}],
             [None, {"type": "xy"}],
@@ -131,14 +131,12 @@ def visualize_trajectory(
         subplot_titles=(
             "",
             "Position [m]",
-            "Velocity & Body Rates",
+            "Velocity [m/s]",
             "Acceleration [m/s²]",
             "Jerk [m/s³]",
             "Snap [m/s⁴]",
-            "Thrust [N]",
-            "Torque [N·m]",
         ),
-        vertical_spacing=0.04,
+        vertical_spacing=0.05,
     )
 
     # --- Left panel: 3D trajectory ---
@@ -156,18 +154,19 @@ def visualize_trajectory(
     )
 
     # Seed waypoints
-    fig.add_trace(
-        go.Scatter3d(
-            x=inner_points[0],
-            y=inner_points[1],
-            z=inner_points[2],
-            mode="markers",
-            marker=dict(color="orange", size=4, symbol="diamond"),
-            name="seed waypoints",
-        ),
-        row=1,
-        col=1,
-    )
+    if inner_points is not None:
+        fig.add_trace(
+            go.Scatter3d(
+                x=inner_points[0],
+                y=inner_points[1],
+                z=inner_points[2],
+                mode="markers",
+                marker=dict(color="orange", size=4, symbol="diamond"),
+                name="seed waypoints",
+            ),
+            row=1,
+            col=1,
+        )
 
     # Optimized waypoints (GCOPTER junction positions)
     if optimized_positions is not None:
@@ -177,7 +176,7 @@ def visualize_trajectory(
                 y=optimized_positions[1],
                 z=optimized_positions[2],
                 mode="markers",
-                marker=dict(color="magenta", size=6, symbol="circle-open"),
+                marker=dict(color="green", size=8, symbol="diamond"),
                 name="optimized waypoints",
             ),
             row=1,
@@ -185,22 +184,23 @@ def visualize_trajectory(
         )
 
     # SFC box wireframes
-    for i, center in enumerate(sfc_centers):
-        wire = _box_wireframe(center, half_extents)
-        fig.add_trace(
-            go.Scatter3d(
-                x=wire[0],
-                y=wire[1],
-                z=wire[2],
-                mode="lines",
-                line=dict(color="dimgray", width=2),
-                opacity=0.35,
-                showlegend=(i == 0),
-                name="SFC",
-            ),
-            row=1,
-            col=1,
-        )
+    if sfc_centers is not None and half_extents is not None:
+        for i, center in enumerate(sfc_centers):
+            wire = _box_wireframe(center, half_extents)
+            fig.add_trace(
+                go.Scatter3d(
+                    x=wire[0],
+                    y=wire[1],
+                    z=wire[2],
+                    mode="lines",
+                    line=dict(color="dimgray", width=2),
+                    opacity=0.35,
+                    showlegend=(i == 0),
+                    name="SFC",
+                ),
+                row=1,
+                col=1,
+            )
 
     # Start / end markers
     fig.add_trace(
@@ -209,7 +209,7 @@ def visualize_trajectory(
             y=[pos[0, 1]],
             z=[pos[0, 2]],
             mode="markers",
-            marker=dict(color="green", size=8, symbol="circle"),
+            marker=dict(color="green", size=10, symbol="diamond"),
             name="start",
         ),
         row=1,
@@ -245,39 +245,9 @@ def visualize_trajectory(
         col=2,
     )
 
-    # --- Row 2: velocity + body rates ---
+    # --- Row 2: speed ---
     fig.add_trace(
         go.Scatter(x=t, y=v_norm, name="|v| [m/s]", line=dict(width=1.5)),
-        row=2,
-        col=2,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=t,
-            y=w[:, 0],
-            name="wx [rad/s]",
-            line=dict(width=1, dash="dot"),
-        ),
-        row=2,
-        col=2,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=t,
-            y=w[:, 1],
-            name="wy [rad/s]",
-            line=dict(width=1, dash="dot"),
-        ),
-        row=2,
-        col=2,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=t,
-            y=w[:, 2],
-            name="wz [rad/s]",
-            line=dict(width=1, dash="dot"),
-        ),
         row=2,
         col=2,
     )
@@ -333,33 +303,10 @@ def visualize_trajectory(
         col=2,
     )
 
-    # --- Row 6: thrust ---
-    fig.add_trace(
-        go.Scatter(x=t, y=thrust, name="thrust [N]", line=dict(width=1.5)),
-        row=6,
-        col=2,
-    )
-
-    # --- Row 7: torque ---
-    if torque is not None:
-        tau_labels = ["τx [N·m]", "τy [N·m]", "τz [N·m]"]
-        for i in range(3):
-            fig.add_trace(
-                go.Scatter(
-                    x=t,
-                    y=torque[:, i],
-                    name=tau_labels[i],
-                    line=dict(width=1.5),
-                    legendgroup="torque",
-                ),
-                row=7,
-                col=2,
-            )
-
     # Layout
     fig.update_layout(
         title=dict(
-            text=f"GCOPTER Trajectory — {shape}  (cost={cost:.2f})",
+            text=_make_title(shape, cost),
             font=dict(size=16),
         ),
         scene=dict(
@@ -372,13 +319,11 @@ def visualize_trajectory(
         legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=1.02),
     )
 
-    fig.update_xaxes(title_text="Time [s]", row=7, col=2)
-    fig.update_yaxes(title_text="[m/s] / [rad/s]", row=2, col=2)
+    fig.update_xaxes(title_text="Time [s]", row=5, col=2)
+    fig.update_yaxes(title_text="[m/s]", row=2, col=2)
     fig.update_yaxes(title_text="[m/s²]", row=3, col=2)
     fig.update_yaxes(title_text="[m/s³]", row=4, col=2)
     fig.update_yaxes(title_text="[m/s⁴]", row=5, col=2)
-    fig.update_yaxes(title_text="[N]", row=6, col=2)
-    fig.update_yaxes(title_text="[N·m]", row=7, col=2)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.write_html(str(output_path))

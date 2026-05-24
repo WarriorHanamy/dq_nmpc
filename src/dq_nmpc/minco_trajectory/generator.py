@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import os
+import webbrowser
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -13,12 +14,9 @@ import numpy as np
 
 from dq_nmpc.minco_trajectory.visualization import visualize_trajectory
 from dq_nmpc.minco_trajectory.waypoints import make_sfc_box, waypoints_for_shape
-from dq_nmpc.nmpc.flatness import make_flatness_casadi
-from dq_nmpc.schema import TRAJECTORY_CSV_COLUMNS, OutputPaths, PhysicsParams, TrajectoryConfig
+from dq_nmpc.schema import TRAJECTORY_CSV_COLUMNS, OutputPaths, TrajectoryConfig
 
-_GCONFIG_ROOT = (
-    Path(__file__).resolve().parents[3] / "src" / "dq_nmpc" / "config" / "mujoco" / "default"
-)
+_GCONFIG_ROOT = Path(__file__).resolve().parent
 
 _NOMINAL_SPEED = 2.0  # [m/s] initial piece duration seed
 
@@ -37,17 +35,11 @@ def _in_dir(path: Path):
 def _sample_trajectory(
     traj7: Any,
     ts: float,
-    mass: float,
-    gravity: float,
-    ixx: float,
-    iyy: float,
-    izz: float,
 ) -> list[tuple[float, ...]]:
-    """Sample a Trajectory7 and decompose via CasADi flatness.
+    """Sample a Trajectory7 at uniform time intervals.
 
-    Returns CSV rows with thrust, quaternion, body rates, and torque.
+    Returns CSV rows with position and its first four time derivatives.
     """
-    flatness_fn = make_flatness_casadi()
     duration = traj7.total_duration
     num_samples = int(duration / ts) + 1
     if num_samples < 2:
@@ -63,27 +55,6 @@ def _sample_trajectory(
         jer = np.array(traj7.get_jer(t), dtype=np.float64).ravel()
         sna = np.array(traj7.get_sna(t), dtype=np.float64).ravel()
 
-        yaw = float(np.arctan2(vel[1], vel[0])) if np.linalg.norm(vel[:2]) > 0.01 else 0.0
-
-        result = flatness_fn(
-            float(acc[0]),
-            float(acc[1]),
-            float(acc[2]),
-            float(jer[0]),
-            float(jer[1]),
-            float(jer[2]),
-            float(sna[0]),
-            float(sna[1]),
-            float(sna[2]),
-            yaw,
-            0.0,
-            0.0,
-            mass,
-            ixx,
-            iyy,
-            izz,
-            gravity,
-        )
         rows.append(
             (
                 t,
@@ -102,17 +73,6 @@ def _sample_trajectory(
                 float(sna[0]),
                 float(sna[1]),
                 float(sna[2]),
-                float(result[0]),
-                float(result[1]),
-                float(result[2]),
-                float(result[3]),
-                float(result[4]),
-                float(result[5]),
-                float(result[6]),
-                float(result[10]),
-                float(result[11]),
-                float(result[12]),
-                float(result[13]),
             )
         )
 
@@ -121,7 +81,6 @@ def _sample_trajectory(
 
 def generate_trajectory(
     config: TrajectoryConfig,
-    physics: PhysicsParams,
     output: str | Path | None = None,
 ) -> Path:
     if output is None:
@@ -150,7 +109,7 @@ def generate_trajectory(
 
     sfc_centers = []
     sfc_polys = []
-    half_extents = (0.5, 0.5, 0.5)
+    half_extents = tuple(config.sfc_half_extents)
     for k in range(num_pieces):
         if k == 0:
             center = inner_points[:, 0]
@@ -177,14 +136,14 @@ def generate_trajectory(
 
     cost, traj7 = opt.optimize(rel_cost_tol=1e-3)
 
+    t_junctions = np.cumsum(np.insert(traj7.durations, 0, 0.0))
+    optimized = np.column_stack(
+        [np.array(traj7.get_pos(t), dtype=np.float64).ravel() for t in t_junctions]
+    )
+
     rows = _sample_trajectory(
         traj7,
         config.control_update_interval,
-        physics.mass,
-        physics.gravity,
-        physics.ixx,
-        physics.iyy,
-        physics.izz,
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -194,21 +153,22 @@ def generate_trajectory(
         writer.writerow(list(TRAJECTORY_CSV_COLUMNS))
         writer.writerows(rows)
 
-    print(f"Trajectory saved: {output}  ({len(rows)} points, cost={cost:.4f})")
+    print(f"Trajectory: {output}  |  coeffs: {npz_path}  |  viz: {viz_path}")
 
     durations = np.array(list(traj7.durations), dtype=np.float64)
     coeffs = np.stack([traj7[i].get_coeff_mat() for i in range(len(traj7))])
     np.savez(npz_path, durations=durations, coeffs=coeffs)
-    print(f"Trajectory coeffs saved: {npz_path}")
 
     visualize_trajectory(
         csv_path=output,
+        output_path=viz_path,
         shape=config.shape,
+        cost=cost,
         inner_points=inner_points,
         sfc_centers=sfc_centers,
         half_extents=half_extents,
-        cost=cost,
-        output_path=viz_path,
+        optimized_positions=optimized,
     )
+    webbrowser.open(str(viz_path))
 
     return output

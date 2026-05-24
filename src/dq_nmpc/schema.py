@@ -32,17 +32,6 @@ TRAJECTORY_CSV_COLUMNS: tuple[str, ...] = (
     "sx",
     "sy",
     "sz",
-    "qw",
-    "qx",
-    "qy",
-    "qz",
-    "wx",
-    "wy",
-    "wz",
-    "thrust",
-    "torque_x",
-    "torque_y",
-    "torque_z",
 )
 
 
@@ -494,6 +483,12 @@ class TrajectoryConfig(BaseModel):
     shape: str = Field(default="circle", description="Trajectory shape")
     control_update_interval: float = Field(gt=0.0, description="MPC control-loop period [s]")
     num_waypoints: int = Field(default=10, gt=1, description="Number of intermediate waypoints")
+    sfc_half_extents: list[float] = Field(
+        default=[0.5, 0.5, 0.5],
+        min_length=3,
+        max_length=3,
+        description="SFC box half-extents (x, y, z) [m]",
+    )
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> TrajectoryConfig:
