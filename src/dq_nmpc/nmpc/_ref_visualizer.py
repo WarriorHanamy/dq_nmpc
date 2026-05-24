@@ -29,6 +29,19 @@ _BODY_AXIS_LEN = 0.25
 _BODY_AXES_STRIDE = 10
 
 
+def _compute_euler_zyx(q_all: np.ndarray) -> np.ndarray:
+    """ZYX Euler angles (intrinsic Rz*Ry*Rx) from quaternions.
+
+    @param[in] q_all  (N, 4) quaternions [qw, qx, qy, qz]
+    @return           (N, 3) [roll, pitch, yaw] [rad]
+    """
+    qw, qx, qy, qz = q_all[:, 0], q_all[:, 1], q_all[:, 2], q_all[:, 3]
+    roll = np.arctan2(2.0 * (qw * qx + qy * qz), 1.0 - 2.0 * (qx * qx + qy * qy))
+    pitch = np.arcsin(np.clip(2.0 * (qw * qy - qz * qx), -1.0, 1.0))
+    yaw = np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
+    return np.column_stack([roll, pitch, yaw])
+
+
 def visualize_ref_params(
     ref_params: np.ndarray,
     output_path: str | Path,
@@ -64,6 +77,15 @@ def visualize_ref_params(
                     name="Position [m]",
                 ),
                 TimeSeriesView(
+                    origin="/reference/attitude",
+                    contents=[
+                        "/reference/attitude/roll",
+                        "/reference/attitude/pitch",
+                        "/reference/attitude/yaw",
+                    ],
+                    name="Attitude (ZYX) [rad]",
+                ),
+                TimeSeriesView(
                     origin="/reference/angular_velocity",
                     contents=[
                         "/reference/omega/wx",
@@ -73,7 +95,7 @@ def visualize_ref_params(
                     name="Angular Velocity [rad/s]",
                 ),
                 name="States",
-                column_shares=[1, 1],
+                column_shares=[1, 1, 1],
             ),
             Horizontal(
                 TimeSeriesView(
@@ -202,10 +224,13 @@ def _log_3d_trajectory(ref_params: np.ndarray, dt: float) -> None:
 
 
 def _log_time_series(ref_params: np.ndarray, t_vec: np.ndarray) -> None:
-    """Log scalar time series for position, omega, body velocity, and control."""
+    """Log scalar time series for position, attitude, omega, body velocity, and control."""
     dq_to_pos = position_from_dualquat_ca_func()
     dq_all = ref_params[:, NMPC_REF_DQ_SLICE].T  # (8, N)
     pos_all = np.array(dq_to_pos(dq_all)).T  # (N, 3)
+
+    q_all = ref_params[:, :4]  # (N, 4) quaternion real part of DQ
+    euler = _compute_euler_zyx(q_all)  # (N, 3)
 
     omega = ref_params[:, NMPC_REF_OMEGA_SLICE]  # (N, 3)
     vel_body = ref_params[:, NMPC_REF_VEL_SLICE]  # (N, 3)
@@ -218,6 +243,9 @@ def _log_time_series(ref_params: np.ndarray, t_vec: np.ndarray) -> None:
         rr.log("reference/position/x", rr.Scalars([float(pos_all[i, 0])]))
         rr.log("reference/position/y", rr.Scalars([float(pos_all[i, 1])]))
         rr.log("reference/position/z", rr.Scalars([float(pos_all[i, 2])]))
+        rr.log("reference/attitude/roll", rr.Scalars([float(euler[i, 0])]))
+        rr.log("reference/attitude/pitch", rr.Scalars([float(euler[i, 1])]))
+        rr.log("reference/attitude/yaw", rr.Scalars([float(euler[i, 2])]))
         rr.log("reference/omega/wx", rr.Scalars([float(omega[i, 0])]))
         rr.log("reference/omega/wy", rr.Scalars([float(omega[i, 1])]))
         rr.log("reference/omega/wz", rr.Scalars([float(omega[i, 2])]))
