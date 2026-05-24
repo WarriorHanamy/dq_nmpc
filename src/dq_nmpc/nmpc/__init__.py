@@ -2,6 +2,7 @@
 
 from ._dq_functions import dualquat_from_pose_ca_func
 from ._flatness import make_flatness_casadi
+from ._ref_visualizer import visualize_ref_params
 from ._reference import belts_from_dense, dense_ref_from_minco
 
 __all__ = [
@@ -12,6 +13,7 @@ __all__ = [
     "make_flatness_casadi",
     "run_nmpc",
     "solver",
+    "visualize_ref_params",
 ]
 
 

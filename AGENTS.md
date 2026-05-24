@@ -201,11 +201,18 @@ entrypoints.
 [project.scripts]
 dq-run = "dq_nmpc.cli._nmpc:main_run"
 dq-codegen = "dq_nmpc.cli._nmpc:main_codegen"
+dq-nmpc-vis-ref = "dq_nmpc.cli._nmpc:main_vis_ref"
 dq-trajectory = "dq_nmpc.cli._trajectory:main"
 dq-build-sim = "dq_nmpc.cli._build:main_build_sim"
 ```
 
 No file outside `cli/` may contain `if __name__ == "__main__":`.
+
+All CLI entrypoints use schematized defaults (`_DEFAULT_*` module-level
+constants) so zero-argument invocation is always valid.  Defaults are
+derived from known project paths (``src/dq_nmpc/nmpc/config/default.yaml``,
+``out/circle/trajectory.npz``, etc.).  Never require the user to specify
+paths that have a canonical home.
 
 ### What lives where
 

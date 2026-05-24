@@ -1,4 +1,4 @@
-"""Zero-logic dispatch for NMPC CLI verbs — dq-run and dq-codegen."""
+"""Zero-logic dispatch for NMPC CLI verbs — dq-run, dq-codegen, dq-nmpc-vis-ref."""
 
 from __future__ import annotations
 
@@ -7,6 +7,10 @@ import logging
 import os
 import sys
 from pathlib import Path
+
+_DEFAULT_NMPC = "src/dq_nmpc/nmpc/config/default.yaml"
+_DEFAULT_SE3 = "src/dq_nmpc/nmpc/config/se3.yaml"
+_DEFAULT_TRAJ = "out/circle/trajectory.npz"
 
 
 def _setup_acados_env() -> None:
@@ -69,11 +73,6 @@ def main_run():
     )
 
 
-_DEFAULT_NMPC = "src/dq_nmpc/nmpc/config/default.yaml"
-_DEFAULT_SE3 = "src/dq_nmpc/nmpc/config/se3.yaml"
-_DEFAULT_TRAJ = "out/circle/trajectory.npz"
-
-
 def main_codegen():
     """CLI entrypoint for dq-codegen: acados code generation."""
     _setup_acados_env()
@@ -82,3 +81,38 @@ def main_codegen():
     config_path = _DEFAULT_NMPC if len(sys.argv) < 2 else sys.argv[1]
     codegen(config_path)
     print("Code generation complete.")
+
+
+def main_vis_ref():
+    """CLI entrypoint for dq-nmpc-vis-ref: static reference trajectory visualization."""
+    from dq_nmpc.workflows.visualize_reference import visualize_reference
+
+    _root = Path(__file__).resolve().parents[3]
+
+    def _resolve(p: str) -> str:
+        path = Path(p)
+        if path.exists():
+            return str(path)
+        for base in (_root, _root / "src" / "dq_nmpc"):
+            resolved = base / path
+            if resolved.exists():
+                return str(resolved)
+        return str(path)
+
+    parser = argparse.ArgumentParser(description="Static NMPC reference trajectory visualization")
+    parser.add_argument(
+        "trajectory", nargs="?", default=_DEFAULT_TRAJ, help="Path to trajectory.npz"
+    )
+    parser.add_argument("config", nargs="?", default=_DEFAULT_NMPC, help="Path to nmpc.yaml")
+    parser.add_argument(
+        "--output", type=str, default=None, help="Output .rrd path (default: derived from npz)"
+    )
+    parser.add_argument("--rerun", action="store_true", help="Spawn Rerun viewer")
+    args = parser.parse_args()
+
+    visualize_reference(
+        npz_path=_resolve(args.trajectory),
+        config_path=_resolve(args.config),
+        output_path=args.output,
+        spawn=args.rerun,
+    )
