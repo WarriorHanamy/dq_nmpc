@@ -63,6 +63,7 @@ def se3_control(
     mass: float,
     gravity: float = 9.80665,
     target_vel: np.ndarray | None = None,
+    max_acc_xy: float = float("inf"),
 ) -> tuple[float, float, float, float]:
     """Compute body-frame thrust and torques via SE(3) geometric control.
 
@@ -79,6 +80,7 @@ def se3_control(
     @param[in] mass          Vehicle mass [kg]
     @param[in] gravity       Gravitational acceleration [m/s²]
     @param[in] target_vel    Desired world ENU velocity [m/s] shape (3,)
+    @param[in] max_acc_xy    Maximum horizontal acceleration [m/s²]
     @return (thrust, tau_x, tau_y, tau_z) body FLU [N, Nm]
     """
     qw, qx, qy, qz = (
@@ -103,6 +105,11 @@ def se3_control(
     for i in range(3):
         F_des[i] = -K_p[i] * e_p[i] - K_v[i] * e_v[i]
     F_des[2] -= mass * (-gravity)  # compensate gravity: -m * g_z where g_z = -gravity
+
+    F_xy_norm = float(np.linalg.norm(F_des[:2]))
+    max_force_xy = mass * max_acc_xy
+    if F_xy_norm > max_force_xy:
+        F_des[:2] *= max_force_xy / F_xy_norm
 
     thrust_raw = np.dot(F_des, R[:, 2])
     thrust = float(np.clip(thrust_raw, 0.0, 21.0))

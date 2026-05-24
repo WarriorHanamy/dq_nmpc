@@ -106,21 +106,21 @@ def visualize_ref_params(
     N = ref_params.shape[0]
     t_vec = np.arange(N, dtype=np.float64) * dt
 
-    _log_3d_trajectory(ref_params)
+    _log_3d_trajectory(ref_params, dt)
     _log_time_series(ref_params, t_vec)
 
     logger.info("Reference visualization written: %s", output_path)
     return output_path
 
 
-def _log_3d_trajectory(ref_params: np.ndarray) -> None:
+def _log_3d_trajectory(ref_params: np.ndarray, dt: float) -> None:
     """Log 3D trajectory path and periodic body-axis arrows."""
     dq_to_pos = position_from_dualquat_ca_func()
     dq_all = ref_params[:, NMPC_REF_DQ_SLICE].T  # (8, N)
     pos_all = np.array(dq_to_pos(dq_all)).T  # (N, 3)
 
     N = ref_params.shape[0]
-    t_dt = np.arange(N, dtype=np.float64)
+    t_dt = np.arange(N, dtype=np.float64) * dt
 
     points = [(float(p[0]), float(p[1]), float(p[2])) for p in pos_all]
     rr.log(
@@ -174,7 +174,7 @@ def _log_3d_trajectory(ref_params: np.ndarray) -> None:
             float(2.0 * (qy * qz - qw * qx)),
             float(qw * qw - qx * qx - qy * qy + qz * qz),
         )
-        rr.set_time_seconds("time", float(t_dt[i]))
+        rr.set_time("time", timestamp=float(t_dt[i]))
         rr.log(
             "reference/3d/body_axes",
             rr.Arrows3D(
@@ -214,7 +214,7 @@ def _log_time_series(ref_params: np.ndarray, t_vec: np.ndarray) -> None:
 
     for i in range(len(t_vec)):
         t = float(t_vec[i])
-        rr.set_time_seconds("time", t)
+        rr.set_time("time", timestamp=t)
         rr.log("reference/position/x", rr.Scalars([float(pos_all[i, 0])]))
         rr.log("reference/position/y", rr.Scalars([float(pos_all[i, 1])]))
         rr.log("reference/position/z", rr.Scalars([float(pos_all[i, 2])]))
