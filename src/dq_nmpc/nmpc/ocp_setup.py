@@ -10,7 +10,7 @@ import numpy as np
 from acados_template import AcadosOcp, AcadosOcpSolver
 from casadi import vertcat
 
-from dq_nmpc.math.dq_functions import dualquat_mul_conj_expr, log_map_dualquat_expr
+from dq_nmpc.nmpc.dq_functions import dualquat_mul_conj_expr, log_map_dualquat_expr
 from dq_nmpc.nmpc.dynamics import export_acados_model
 from dq_nmpc.schema import (
     CONTROL_INPUT,

@@ -5,7 +5,7 @@ import numpy as np
 
 def test_dualquat_from_pose_ca_func_np_inputs():
     """Verify _ca_func works with numpy array elements."""
-    from dq_nmpc.math.dq_functions import dualquat_from_pose_ca_func
+    from dq_nmpc.nmpc.dq_functions import dualquat_from_pose_ca_func
 
     fn = dualquat_from_pose_ca_func()
     qw, qx, qy, qz = 1.0, 0.0, 0.0, 0.0
@@ -17,7 +17,7 @@ def test_dualquat_from_pose_ca_func_np_inputs():
 
 
 def test_import_casadi_dq_from_pose():
-    from dq_nmpc.math.dq_functions import dualquat_from_pose_ca_func
+    from dq_nmpc.nmpc.dq_functions import dualquat_from_pose_ca_func
 
     fn = dualquat_from_pose_ca_func()
     result = fn(1.0, 0.0, 0.0, 0.0, 1.0, 2.0, 3.0)
@@ -26,6 +26,6 @@ def test_import_casadi_dq_from_pose():
 
 
 def test_import_via_package():
-    from dq_nmpc.math.dq_functions import dualquat_from_pose_ca_func
+    from dq_nmpc.nmpc.dq_functions import dualquat_from_pose_ca_func
 
     assert callable(dualquat_from_pose_ca_func)

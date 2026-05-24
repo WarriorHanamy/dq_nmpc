@@ -3,12 +3,29 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from dq_nmpc.schema import csv_column_index
+
+def _sample_geometry(traj7: Any, ts: float) -> tuple[np.ndarray, ...]:
+    """Sample Trajectory7 geometry at uniform time intervals.
+
+    @param[in] traj7  minco.poly_traj.Trajectory7 instance
+    @param[in] ts     Sampling interval [s]
+    @return           (t, pos, vel, acc, jer, sna) arrays
+    """
+    duration = traj7.total_duration
+    num = max(int(duration / ts) + 1, 2)
+    t = np.linspace(0.0, duration, num, dtype=np.float64)
+    pos = np.column_stack([np.array(traj7.get_pos(ti), dtype=np.float64).ravel() for ti in t]).T
+    vel = np.column_stack([np.array(traj7.get_vel(ti), dtype=np.float64).ravel() for ti in t]).T
+    acc = np.column_stack([np.array(traj7.get_acc(ti), dtype=np.float64).ravel() for ti in t]).T
+    jer = np.column_stack([np.array(traj7.get_jer(ti), dtype=np.float64).ravel() for ti in t]).T
+    sna = np.column_stack([np.array(traj7.get_sna(ti), dtype=np.float64).ravel() for ti in t]).T
+    return t, pos, vel, acc, jer, sna
 
 
 def _box_wireframe(center: np.ndarray, half_extents: tuple[float, float, float]) -> np.ndarray:
@@ -46,33 +63,6 @@ def _box_wireframe(center: np.ndarray, half_extents: tuple[float, float, float])
     return np.vstack(segs).T
 
 
-def _quat_to_euler_zyx(q: np.ndarray) -> np.ndarray:
-    """Convert quaternion [qw,qx,qy,qz] to ZYX Euler angles in degrees.
-
-    ZYX intrinsic rotation = Rz(yaw) * Ry(pitch) * Rx(roll).
-
-    @param[in] q  (4,) or (N,4) quaternion array [qw, qx, qy, qz]
-    @return       (3,) or (N,3) Euler angles [roll, pitch, yaw] in degrees
-    """
-    q = np.atleast_2d(q)
-    qw, qx, qy, qz = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
-
-    R00 = 1.0 - 2.0 * (qy**2 + qz**2)
-    R10 = 2.0 * (qx * qy + qz * qw)
-    R20 = 2.0 * (qx * qz - qy * qw)
-    R21 = 2.0 * (qy * qz + qx * qw)
-    R22 = 1.0 - 2.0 * (qx**2 + qy**2)
-
-    roll = np.arctan2(R21, R22)
-    pitch = -np.arcsin(np.clip(R20, -1.0, 1.0))
-    yaw = np.arctan2(R10, R00)
-
-    euler = np.column_stack([np.rad2deg(roll), np.rad2deg(pitch), np.rad2deg(yaw)])
-    if euler.shape[0] == 1 and q.shape[0] == 1:
-        return euler[0]
-    return euler
-
-
 def _make_title(shape: str, cost: float) -> str:
     """Build title string from optional shape and cost."""
     parts = ["GCOPTER Trajectory"]
@@ -84,9 +74,10 @@ def _make_title(shape: str, cost: float) -> str:
 
 
 def visualize_trajectory(
-    csv_path: Path,
+    traj7: Any,
     output_path: Path,
     *,
+    ts: float = 0.03,
     shape: str = "",
     cost: float = 0.0,
     inner_points: np.ndarray | None = None,
@@ -96,24 +87,18 @@ def visualize_trajectory(
 ) -> Path:
     """Generate interactive plotly HTML visualization of a trajectory.
 
-    @param[in] csv_path             Path to trajectory CSV
-    @param[in] output_path          Output HTML path
-    @param[in] shape                Trajectory shape name (title only)
-    @param[in] cost                 Optimization cost (title only)
-    @param[in] inner_points         (3, N) seed waypoints (optional)
-    @param[in] sfc_centers          List of (3,) SFC box centers (optional)
-    @param[in] half_extents         SFC box half-extents [m] (optional)
-    @param[in] optimized_positions  (3, M) GCOPTER-optimized junction positions (optional)
-    @return                         Path to the written HTML file
+    @param[in] traj7              minco.poly_traj.Trajectory7 instance
+    @param[in] output_path        Output HTML path
+    @param[in] ts                 Sampling interval for geometry plots [s]
+    @param[in] shape              Trajectory shape name (title only)
+    @param[in] cost               Optimization cost (title only)
+    @param[in] inner_points       (3, N) seed waypoints (optional)
+    @param[in] sfc_centers        List of (3,) SFC box centers (optional)
+    @param[in] half_extents       SFC box half-extents [m] (optional)
+    @param[in] optimized_positions (3, M) GCOPTER-optimized junction positions (optional)
+    @return                       Path to the written HTML file
     """
-    data = np.genfromtxt(csv_path, delimiter=",", skip_header=1)
-    _i = csv_column_index
-    t = data[:, _i("t")]
-    pos = data[:, _i("x") : _i("z") + 1]
-    vel = data[:, _i("vx") : _i("vz") + 1]
-    acc = data[:, _i("ax") : _i("az") + 1]
-    jer = data[:, _i("jx") : _i("jz") + 1]
-    sna = data[:, _i("sx") : _i("sz") + 1]
+    t, pos, vel, acc, jer, sna = _sample_geometry(traj7, ts)
 
     v_norm = np.linalg.norm(vel, axis=1)
 
@@ -329,255 +314,3 @@ def visualize_trajectory(
     fig.write_html(str(output_path))
     print(f"Visualization saved: {output_path}")
     return output_path
-
-
-def visualize_belt_set(
-    belts,
-    output_path: str | Path | None = None,
-    *,
-    step: int = 5,
-) -> go.Figure:
-    """Interactive 3D Plotly visualization of a belt set.
-
-    Shows the full trajectory as a gray line with a slider-controlled
-    highlighted segment (the current belt).  Positions are extracted
-    from the dual-quaternion dual part via ``position_from_dualquat_ca_func``.
-
-    @param[in] belts       ``RefTrajectoryAsBelts`` instance
-    @param[in] output_path  Path for output ``.html`` (if None, figure is returned)
-    @param[in] step         Show every N-th belt as a frame (controls file size)
-    @return                 Plotly ``Figure`` object
-    """
-    from dq_nmpc.math.dq_functions import position_from_dualquat_ca_func
-
-    dq_to_pos = position_from_dualquat_ca_func()
-
-    N_c = belts.N_c
-    N = belts.horizon_steps
-
-    dq_all = belts.belts[:, :, :8].reshape(-1, 8).T  # (8, N_c * N)
-    pos_all = np.array(dq_to_pos(dq_all)).T  # (N_c * N, 3)
-    pos_reshaped = pos_all.reshape(N_c, N, 3)  # (N_c, N, 3)
-    traj_pos = pos_reshaped[:, 0, :]  # (N_c, 3) — first point per belt
-
-    if belts.belts.shape[0] < 2:
-        fig = go.Figure()
-        fig.add_trace(
-            go.Scatter3d(
-                x=list(traj_pos[:, 0]),
-                y=list(traj_pos[:, 1]),
-                z=list(traj_pos[:, 2]),
-                mode="markers+lines",
-                marker=dict(size=3),
-                line=dict(color="gray", width=1),
-                name="trajectory",
-            )
-        )
-        fig.update_layout(
-            title="Belt Set (empty — N_c < 2)",
-            scene=dict(aspectmode="data"),
-        )
-        if output_path is not None:
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            fig.write_html(str(output_path))
-        return fig
-
-    trace_full = go.Scatter3d(
-        x=list(traj_pos[:, 0]),
-        y=list(traj_pos[:, 1]),
-        z=list(traj_pos[:, 2]),
-        mode="lines",
-        line=dict(color="lightgray", width=1),
-        name="full trajectory",
-    )
-
-    b0_pos = pos_reshaped[0]  # (N, 3)
-    trace_belt = go.Scatter3d(
-        x=list(b0_pos[:, 0]),
-        y=list(b0_pos[:, 1]),
-        z=list(b0_pos[:, 2]),
-        mode="lines+markers",
-        marker=dict(size=3, color="crimson"),
-        line=dict(color="crimson", width=4),
-        name="current belt",
-    )
-
-    fig = go.Figure(data=[trace_full, trace_belt])
-
-    frames: list[go.Frame] = []
-    slider_steps: list[dict] = []
-    frame_indices = list(range(0, N_c, step))
-    for k in frame_indices:
-        pos_k = pos_reshaped[k]
-        frames.append(
-            go.Frame(
-                data=[
-                    go.Scatter3d(
-                        x=list(traj_pos[:, 0]),
-                        y=list(traj_pos[:, 1]),
-                        z=list(traj_pos[:, 2]),
-                        mode="lines",
-                        line=dict(color="lightgray", width=1),
-                    ),
-                    go.Scatter3d(
-                        x=list(pos_k[:, 0]),
-                        y=list(pos_k[:, 1]),
-                        z=list(pos_k[:, 2]),
-                        mode="lines+markers",
-                        marker=dict(size=3, color="crimson"),
-                        line=dict(color="crimson", width=4),
-                    ),
-                ],
-                name=f"k={k}",
-            )
-        )
-        slider_steps.append(
-            dict(
-                args=[
-                    [f"k={k}"],
-                    {"frame": {"duration": 0, "redraw": True}, "mode": "immediate"},
-                ],
-                label=str(k),
-                method="animate",
-            )
-        )
-
-    fig.frames = frames
-
-    fig.update_layout(
-        title=(
-            f"Belt Set — {N_c} belts × {N} horizon steps (step={step}, {len(frame_indices)} frames)"
-        ),
-        scene=dict(
-            xaxis_title="X [m]",
-            yaxis_title="Y [m]",
-            zaxis_title="Z [m]",
-            aspectmode="data",
-        ),
-        margin=dict(l=20, r=20, t=60, b=20),
-        sliders=[
-            dict(
-                active=0,
-                steps=slider_steps,
-                currentvalue={"prefix": "belt k="},
-                pad=dict(t=40),
-            )
-        ],
-    )
-
-    if output_path is not None:
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(str(output_path))
-        print(f"Belt-set visualization saved: {output_path}")
-
-    return fig
-
-
-def visualize_belt_euler_zyx(
-    belts,
-    dt: float,
-    output_path: str | Path | None = None,
-    *,
-    step: int = 5,
-) -> go.Figure:
-    """Interactive Plotly visualization of ZYX Euler angles over each belt.
-
-    For each belt k, extracts the quaternion from ``belts[k, :, 0:4]``,
-    converts to ZYX Euler angles in degrees, and plots roll / pitch / yaw
-    against horizon time (index * dt).  A slider scrubs through all N_c belts.
-    The x-axis starts at 0 = belt start point.
-
-    @param[in] belts       ``RefTrajectoryAsBelts`` instance
-    @param[in] dt          Horizon time step [s]
-    @param[in] output_path  Path for output ``.html`` (if None, figure is returned)
-    @param[in] step         Show every N-th belt as a frame (controls file size)
-    @return                 Plotly ``Figure`` object
-    """
-    N_c = belts.N_c
-    N = belts.horizon_steps
-    horizon_time = np.arange(N) * dt
-
-    quat_all = belts.belts[:, :, :4].reshape(-1, 4)
-    euler_all = _quat_to_euler_zyx(quat_all)
-    euler_reshaped = euler_all.reshape(N_c, N, 3)
-
-    labels = ["roll", "pitch", "yaw"]
-    colors = ["crimson", "royalblue", "darkgreen"]
-
-    fig = make_subplots(
-        rows=3,
-        cols=1,
-        shared_xaxes=True,
-        subplot_titles=("Roll [deg]", "Pitch [deg]", "Yaw [deg]"),
-        vertical_spacing=0.06,
-    )
-
-    e0 = euler_reshaped[0]
-    for i in range(3):
-        fig.add_trace(
-            go.Scatter(
-                x=horizon_time,
-                y=e0[:, i],
-                mode="lines+markers",
-                marker=dict(size=2, color=colors[i]),
-                line=dict(width=2, color=colors[i]),
-                name=labels[i],
-            ),
-            row=i + 1,
-            col=1,
-        )
-
-    frames: list[go.Frame] = []
-    slider_steps: list[dict] = []
-    frame_indices = list(range(0, N_c, step))
-    for k in frame_indices:
-        ek = euler_reshaped[k]
-        frame_data = [
-            go.Scatter(
-                x=horizon_time,
-                y=ek[:, i],
-                mode="lines+markers",
-                marker=dict(size=2, color=colors[i]),
-                line=dict(width=2, color=colors[i]),
-            )
-            for i in range(3)
-        ]
-        frames.append(go.Frame(data=frame_data, name=f"k={k}"))
-        slider_steps.append(
-            dict(
-                args=[
-                    [f"k={k}"],
-                    {"frame": {"duration": 0, "redraw": True}, "mode": "immediate"},
-                ],
-                label=str(k),
-                method="animate",
-            )
-        )
-
-    fig.frames = frames
-
-    fig.update_layout(
-        title=(
-            f"Belt Euler ZYX — {N_c} belts × {N} horizon steps"
-            f"  (step={step}, {len(frame_indices)} frames, dt={dt:.3f} s)"
-        ),
-        margin=dict(l=60, r=20, t=60, b=60),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        sliders=[
-            dict(
-                active=0,
-                steps=slider_steps,
-                currentvalue={"prefix": "belt k="},
-                pad=dict(t=50),
-            )
-        ],
-    )
-
-    fig.update_xaxes(title_text="Horizon time [s]", row=3, col=1)
-
-    if output_path is not None:
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(str(output_path))
-        print(f"Belt Euler ZYX visualization saved: {output_path}")
-
-    return fig

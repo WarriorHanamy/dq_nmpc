@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import casadi as ca
 from acados_template import AcadosModel
 
-from dq_nmpc.math.dq_functions import (
+from dq_nmpc.nmpc.dq_functions import (
     dualquat_acceleration_ca_func,
     dualquat_kinematics_ca_func,
     dualquat_quat_part_ca_func,

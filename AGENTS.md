@@ -15,16 +15,9 @@ src/dq_nmpc/
 │                              #     DualQuaternionState, ClassicalState,
 │                              #     TrajectoryPoint, ReferenceTrajectory,
 │                              #     SHMConfig, TrajectoryConfig, Se3Config,
-│                              #     OutputPaths (lazy artifact paths)
-│                              #   Layout constants:
-│                              #     TRAJECTORY_CSV_COLUMNS, csv_column_index()
+│                              #   OutputPaths (lazy artifact paths)
 │
 ├── type.py                   # Scalar, Vector type aliases (numpy | casadi)
-│
-├── infra/                    # Infrastructure primitives — no classes, no mutable state
-│   ├── workspace.py          # project_root(), paths for sim binary and model
-│   ├── docker_util.py        # build_sim(), launch_sim_core(), sim_env()
-│   └── shm_util.py           # wait_for_shm(), cleanup_shm()
 │
 ├── cli/                      # Zero-logic dispatch — parse args, call one function
 │   ├── build.py              # dq-build-sim (→ infra.build_sim)
@@ -42,6 +35,7 @@ src/dq_nmpc/
 │
 ├── nmpc/                     # NMPC solver — requires acados
 │   ├── config/                #   default.yaml, se3.yaml
+│   ├── dq_functions.py        # DQ math kernels (_expr + _ca_func pattern)
 │   ├── dynamics.py            # Quadrotor ODE, DQ kinematics (acados model)
 │   ├── flatness.py            # Differential flatness: flat outputs → body-frame ref
 │   ├── ocp_setup.py           # OCP definition: cost, constraints, solver options
@@ -52,8 +46,8 @@ src/dq_nmpc/
 │
 ├── minco_trajectory/          # minco-python integration
 │   ├── config/                #   default.yaml, default_gcopter.yaml, lbfgs.yaml
-│   ├── generator.py           # GCOPTER optimize → sample geometry → write CSV
-│   ├── loader.py              # read CSV → ReferenceTrajectory
+│ ├── generator.py          # GCOPTER optimize → NPZ + HTML visualization
+│   ├── loader.py             # read NPZ → Trajectory7
 │   ├── waypoints.py           # SHAPES, waypoints_for_shape(), make_sfc_box()
 │   └── visualization.py       # Plotly interactive trajectory plots
 
@@ -67,9 +61,8 @@ docker/                       # ROS 2 adapter (Docker-based, was src/dq_nmpc/ros
 
 ```
 schema  ──(pydantic)──              # single frozen backbone
-math    ──(numpy, casadi)──         # no schema, no acados
 infra   ──(schema)──                # infrastructure primitives
-nmpc    ──(acados, math, schema)──  # quadrotor physics, OCP, flatness
+nmpc    ──(acados, schema)──        # quadrotor physics, OCP, flatness
 minco_trajectory ──(minco-python)── # trajectory tools
 │
 workflows ──(infra, nmpc, minco_trajectory)──   # chains layers
@@ -77,7 +70,7 @@ cli      ──(workflows)──                       # dispatch only
 docker   ──(rclpy, optional)──               # ROS 2 adapter
 ```
 
-- `math`, `schema`, `infra` are importable without acados or minco.
+- `infra`, `schema` are importable without acados or minco.
 - `nmpc` works only when acados is built and on `PYTHONPATH`.
 - `minco_trajectory/` needs minco-python built (CMake + scikit-build-core).
 - `docker/` is optional — contains the ROS 2 adapter (`docker/dq_nmpc_ros2.Dockerfile`) that provides ROS 2 bridging via Docker.
@@ -130,12 +123,10 @@ Key design points:
 | Why two physical models?       | Trajectory generation trades accuracy for speed; NMPC follows a reference  |
 |                                | that may be dynamically infeasible and corrects online via OCP optimisation |
 
-The CSV output from `dq-trajectory` contains only **geometric** data
-(position and its first four time derivatives) sampled from
-`Trajectory7`.  Differential flatness reinterpretation (quaternion,
-body angular velocity, thrust, torque) occurs exclusively in
-`nmpc/reference.py` when the NMPC loads the `Trajectory7` from the
-`.npz` coefficient file — **not** during trajectory generation.
+The continuous polynomial coefficients (`.npz`) from `dq-trajectory` are the
+primary interchange format.  NMPC reconstructs a ``Trajectory7`` via
+``load_trajectory_npz()``, then resamples it at the NMPC control rate through
+``dense_ref_from_minco()``, which applies the NMPC's own flatness model.
 
 ### Simulator — MuJoCo physics
 
@@ -215,7 +206,6 @@ uv run dq-run src/dq_nmpc/nmpc/config/default.yaml out/circle/trajectory.npz
 ```
 
 Output artifacts for step 1 are written to `out/{shape}/`:
-- `trajectory.csv` — sampled geometry (t, x, y, z, vx, vy, vz, ax, ay, az, jx, jy, jz, sx, sy, sz)
 - `trajectory.npz` — polynomial coefficients (continuous representation, consumed by NMPC)
 - `trajectory.html` — interactive Plotly visualization (opens automatically)
 

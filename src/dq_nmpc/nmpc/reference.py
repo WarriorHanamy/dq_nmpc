@@ -8,7 +8,7 @@ from typing import Any
 import casadi as ca
 import numpy as np
 
-from dq_nmpc.math.dq_functions import (
+from dq_nmpc.nmpc.dq_functions import (
     dualquat_from_pose_ca_func,
     inertial_to_body_rotation_ca_func,
 )

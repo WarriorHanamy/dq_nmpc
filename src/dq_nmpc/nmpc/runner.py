@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from dq_nmpc.math.dq_functions import (
+from dq_nmpc.nmpc.dq_functions import (
     dualquat_from_pose_ca_func,
     position_from_dualquat_ca_func,
     yaw_from_dualquat_ca_func,

@@ -141,7 +141,6 @@ uv run pytest -v                    # run tests
 
 ```
 src/dq_nmpc/
-├── math/                    # Pure math — Quaternion, DualQuaternion (numpy/casadi)
 ├── schema.py                # Single-source Pydantic models + layout constants
 ├── nmpc/                    # NMPC solver (acados)
 │   ├── dynamics.py           #   Quadrotor ODE, dual-quaternion kinematics

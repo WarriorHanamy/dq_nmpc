@@ -15,34 +15,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # Layout constants — single source of truth for I/O contracts
 # ---------------------------------------------------------------------------
 
-TRAJECTORY_CSV_COLUMNS: tuple[str, ...] = (
-    "t",
-    "x",
-    "y",
-    "z",
-    "vx",
-    "vy",
-    "vz",
-    "ax",
-    "ay",
-    "az",
-    "jx",
-    "jy",
-    "jz",
-    "sx",
-    "sy",
-    "sz",
-)
-
-
-def csv_column_index(name: str) -> int:
-    """Return 0-based column index for a name in TRAJECTORY_CSV_COLUMNS.
-
-    Raises ValueError if the name is not a recognized column.
-    """
-    return TRAJECTORY_CSV_COLUMNS.index(name)
-
-
 # NMPC OCP parameter vector layout
 NMPC_REF_DIM = 18  # nx(14) + nu(4) — per shooting-node reference
 NMPC_OCP_P_DIM = 50  # NMPC_REF_DIM + COST_PARAMS_DIM — full runtime p vector
@@ -541,11 +513,6 @@ class OutputPaths(BaseModel):
 
     def _mkdir(self) -> None:
         self._shape_dir().mkdir(parents=True, exist_ok=True)
-
-    @property
-    def trajectory_csv(self) -> Path:
-        self._mkdir()
-        return self._shape_dir() / "trajectory.csv"
 
     @property
     def trajectory_npz(self) -> Path:
