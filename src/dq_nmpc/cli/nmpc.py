@@ -116,3 +116,6 @@ def main_vis_ref():
         output_path=args.output,
         spawn=args.rerun,
     )
+    print(f"Visualization written: {args.output or Path(args.trajectory).with_suffix('.rrd')}")
+    if not args.rerun:
+        print("Pass --rerun to launch the Rerun viewer, or open the .rrd with rerun manually.")

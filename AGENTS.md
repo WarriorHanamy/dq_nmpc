@@ -214,6 +214,9 @@ derived from known project paths (``src/dq_nmpc/nmpc/config/default.yaml``,
 ``out/circle/trajectory.npz``, etc.).  Never require the user to specify
 paths that have a canonical home.
 
+Entrypoints must print the output artifact path and, if no viewer is
+spawned, how the user can inspect the result.  Silent success is a bug.
+
 ### What lives where
 
 | Concept                         | Location               | Public name                          |
