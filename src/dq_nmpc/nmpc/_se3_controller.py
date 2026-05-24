@@ -63,7 +63,7 @@ def se3_control(
     mass: float,
     gravity: float = 9.80665,
     target_vel: np.ndarray | None = None,
-    max_acc_xy: float = float("inf"),
+    max_acc_xy: float = 10.0,
 ) -> tuple[float, float, float, float]:
     """Compute body-frame thrust and torques via SE(3) geometric control.
 
