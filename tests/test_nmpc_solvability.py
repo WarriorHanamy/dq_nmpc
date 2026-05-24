@@ -9,9 +9,7 @@ import numpy as np
 import pytest
 
 from dq_nmpc.minco_trajectory import load_trajectory_npz
-from dq_nmpc.nmpc.flatness import make_flatness_casadi
-from dq_nmpc.nmpc.ocp_setup import solver
-from dq_nmpc.nmpc.reference import dense_ref_from_minco
+from dq_nmpc.nmpc import dense_ref_from_minco, make_flatness_casadi, solver
 from dq_nmpc.schema import (
     NMPC_REF_DIM,
     NMPC_REF_DQ_SLICE,
@@ -87,9 +85,7 @@ def test_nmpc_cost_function_not_nan():
     t = 0.0
     acc = np.array(traj7.get_acc(t)).ravel()
     jerk = np.array(traj7.get_jer(t)).ravel()
-    from dq_nmpc.nmpc.reference import _get_snap
-
-    snap = _get_snap(traj7, t)
+    snap = np.array(traj7.get_sna(t)).ravel()
 
     result = m(
         float(acc[0]),

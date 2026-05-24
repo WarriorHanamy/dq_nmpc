@@ -1,19 +1,31 @@
-"""NMPC solver subpackage. Requires acados to be installed."""
+"""NMPC solver: DQ math, flatness, OCP, runtime."""
+
+from ._dq_functions import dualquat_from_pose_ca_func
+from ._flatness import make_flatness_casadi
+from ._reference import belts_from_dense, dense_ref_from_minco
 
 __all__ = [
+    "belts_from_dense",
     "dense_ref_from_minco",
+    "dualquat_from_pose_ca_func",
     "export_acados_model",
     "make_flatness_casadi",
     "run_nmpc",
     "solver",
 ]
 
-try:
-    from dq_nmpc.nmpc.dynamics import export_acados_model  # noqa: F401
-    from dq_nmpc.nmpc.ocp_setup import solver  # noqa: F401
-except ImportError:
-    pass
 
-from dq_nmpc.nmpc.flatness import make_flatness_casadi
-from dq_nmpc.nmpc.reference import dense_ref_from_minco
-from dq_nmpc.nmpc.runner import run_nmpc
+def __getattr__(name: str):
+    if name == "solver":
+        from ._ocp_setup import solver
+
+        return solver
+    if name == "export_acados_model":
+        from ._dynamics import export_acados_model
+
+        return export_acados_model
+    if name == "run_nmpc":
+        from ._runner import run_nmpc
+
+        return run_nmpc
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

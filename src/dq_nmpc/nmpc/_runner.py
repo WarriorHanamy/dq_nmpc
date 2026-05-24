@@ -12,19 +12,18 @@ Trajectory source: minco NPZ → RefTrajectoryAsBelts via nmpc.reference.
 from __future__ import annotations
 
 import logging
-import sys
 import time
 from pathlib import Path
 
 import numpy as np
 
-from dq_nmpc.nmpc.dq_functions import (
+from dq_nmpc.nmpc._dq_functions import (
     dualquat_from_pose_ca_func,
     position_from_dualquat_ca_func,
     yaw_from_dualquat_ca_func,
 )
-from dq_nmpc.nmpc.drone_visualizer import DroneVisualizer
-from dq_nmpc.nmpc.se3_controller import se3_control
+from dq_nmpc.nmpc._drone_visualizer import DroneVisualizer
+from dq_nmpc.nmpc._se3_controller import se3_control
 from dq_nmpc.schema import (
     NMPC_REF_UNOM_SLICE,
     NMPCConfig,
@@ -87,7 +86,7 @@ def run_nmpc(
         )
 
     from dq_nmpc.minco_trajectory import load_trajectory_npz
-    from dq_nmpc.nmpc.reference import belts_from_dense, dense_ref_from_minco
+    from dq_nmpc.nmpc._reference import belts_from_dense, dense_ref_from_minco
 
     traj7 = load_trajectory_npz(trajectory_path)
     ref_params = dense_ref_from_minco(traj7, config)
@@ -267,7 +266,7 @@ def run_nmpc(
 
     # -- Phase 2: NMPC trajectory tracking --
 
-    from dq_nmpc.nmpc.ocp_setup import solver as create_solver
+    from dq_nmpc.nmpc._ocp_setup import solver as create_solver
 
     dq_from_pose = dualquat_from_pose_ca_func()
 
@@ -455,35 +454,3 @@ def run_nmpc(
     ctrl_writer.detach()
     state_reader.detach()
     logger.info("NMPC loop terminated after %d steps", k)
-
-
-def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-
-    if len(sys.argv) < 3:
-        print(
-            "Usage: dq-nmpc-runner <nmpc.yaml> <trajectory.npz>"
-            " [--se3-config SE3.yaml] [--max-iter N]"
-        )
-        sys.exit(1)
-
-    config_path = sys.argv[1]
-    trajectory_path = sys.argv[2]
-    se3_config_path = None
-    max_iter = 0
-    for i, arg in enumerate(sys.argv):
-        if arg == "--se3-config" and i + 1 < len(sys.argv):
-            se3_config_path = sys.argv[i + 1]
-        if arg == "--max-iter" and i + 1 < len(sys.argv):
-            max_iter = int(sys.argv[i + 1])
-
-    run_nmpc(
-        config_path,
-        trajectory_path,
-        se3_config_path=se3_config_path,
-        max_iter=max_iter,
-    )
-
-
-if __name__ == "__main__":
-    main()

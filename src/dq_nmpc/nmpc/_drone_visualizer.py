@@ -95,7 +95,7 @@ class DroneVisualizer:
         of each belt via CasADi), or a minco ``Trajectory7`` (samples via
         ``get_pos``), or a legacy object with ``ref_pos`` attribute.
         """
-        from dq_nmpc.nmpc.dq_functions import position_from_dualquat_ca_func
+        from dq_nmpc.nmpc._dq_functions import position_from_dualquat_ca_func
 
         if hasattr(traj, "belts"):
             dq_to_pos = position_from_dualquat_ca_func()

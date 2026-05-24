@@ -14,7 +14,7 @@ from pathlib import Path
 from dq_nmpc.infra.docker_util import ensure_sim_built, launch_sim_core
 from dq_nmpc.infra.shm_util import cleanup_shm, wait_for_shm
 from dq_nmpc.infra.workspace import model_path as _default_model
-from dq_nmpc.nmpc.runner import run_nmpc
+from dq_nmpc.nmpc import run_nmpc
 
 logger = logging.getLogger(__name__)
 
