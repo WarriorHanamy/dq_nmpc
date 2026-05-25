@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from minco.trajectory import load_npz
 
-from dq_nmpc.minco_trajectory import load_trajectory_npz
 from dq_nmpc.nmpc import dense_ref_from_minco, make_flatness_casadi, solver
 from dq_nmpc.schema import (
     NMPC_REF_DIM,
@@ -23,7 +23,7 @@ TRAJ_NPZ = "out/circle/trajectory.npz"
 
 def _load_trajectory():
     config = NMPCConfig.from_yaml(NMPC_YAML)
-    traj7 = load_trajectory_npz(TRAJ_NPZ)
+    traj7 = load_npz(TRAJ_NPZ)
     ref_params = dense_ref_from_minco(traj7, config)
     return config, ref_params
 
@@ -80,7 +80,7 @@ def test_nmpc_first_step_solvable():
 def test_nmpc_cost_function_not_nan():
     config, ref_params = _load_trajectory()
 
-    traj7 = load_trajectory_npz(TRAJ_NPZ)
+    traj7 = load_npz(TRAJ_NPZ)
     m = make_flatness_casadi()
     t = 0.0
     acc = np.array(traj7.get_acc(t)).ravel()

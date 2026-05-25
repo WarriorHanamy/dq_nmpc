@@ -604,6 +604,7 @@ dependencies = [
     { name = "casadi" },
     { name = "matplotlib" },
     { name = "numpy" },
+    { name = "plotly" },
 ]
 
 [package.metadata]
@@ -611,6 +612,7 @@ requires-dist = [
     { name = "casadi" },
     { name = "matplotlib" },
     { name = "numpy", specifier = ">=2.3,<2.4" },
+    { name = "plotly" },
 ]
 
 [package.metadata.requires-dev]

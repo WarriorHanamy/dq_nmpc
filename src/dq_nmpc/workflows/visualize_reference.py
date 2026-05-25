@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dq_nmpc.minco_trajectory import load_trajectory_npz
+from minco.trajectory import load_npz
+
 from dq_nmpc.nmpc import dense_ref_from_minco, visualize_ref_params
 from dq_nmpc.schema import NMPCConfig
 
@@ -35,7 +36,7 @@ def visualize_reference(
     else:
         output_path = Path(output_path)
 
-    traj7 = load_trajectory_npz(npz_path)
+    traj7 = load_npz(npz_path)
     config = NMPCConfig.from_yaml(config_path)
 
     ref_params = dense_ref_from_minco(traj7, config)

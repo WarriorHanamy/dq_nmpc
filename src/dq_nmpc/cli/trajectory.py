@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from dq_nmpc.minco_trajectory import SHAPES
+from minco.trajectory import SHAPES
 
 
 def main():
@@ -16,7 +16,7 @@ def main():
     parser.add_argument(
         "--config",
         type=str,
-        default="src/dq_nmpc/minco_trajectory/config/default.yaml",
+        default="src/dq_nmpc/config/trajectory.yaml",
         help="Path to trajectory config",
     )
     parser.add_argument("--output", type=str, default=None, help="Output CSV path")

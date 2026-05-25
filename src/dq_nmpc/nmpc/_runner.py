@@ -85,10 +85,11 @@ def run_nmpc(
             "Expected minco NPZ ('durations' + 'coeffs')."
         )
 
-    from dq_nmpc.minco_trajectory import load_trajectory_npz
+    from minco.trajectory import load_npz
+
     from dq_nmpc.nmpc._reference import belts_from_dense, dense_ref_from_minco
 
-    traj7 = load_trajectory_npz(trajectory_path)
+    traj7 = load_npz(trajectory_path)
     ref_params = dense_ref_from_minco(traj7, config)
     belts = belts_from_dense(ref_params, N_horizon)
     traj_duration = float(traj7.total_duration)
